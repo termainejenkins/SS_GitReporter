@@ -2,7 +2,7 @@
   "projects": [
     {
       "name": "THE GREAT CIRCLE",
-      "path": "A:\\UnrealProjects\\TGC_4_27\\.git",
+      "path": "A:/UnrealProjects/TGC_4_27",
       "webhooks": [
         {
           "webhook": "https://discord.com/api/webhooks/1372093327675101215/lu2dCq2uyaMokrizBzPkF0U6omNo29W8Ctx-PE6rLXriGlz3A_iaEKry5IsGb8aRTGz9",
@@ -12,7 +12,7 @@
     },
     {
       "name": "Git Reporter",
-      "path": "C:\\Users\\terma\\SoftwareProjects\\z_SENTIENT SOLUTIONS\\SS_GitReporter\\.git",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/SS_GitReporter",
       "webhooks": [
         {
           "webhook": "https://discord.com/api/webhooks/1372109298074783775/BxL5z1dmkLRmh1D7m7JISp_xhHxV6BIMzfGawH-uLJBUi12-JjHJ4YxtAzgvo2o5fw4_",

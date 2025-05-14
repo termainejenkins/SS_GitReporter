@@ -5,10 +5,15 @@ import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
-    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog
+    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
+    QTimeEdit, QCheckBox, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
+import shutil
+import platform
+import threading
+import datetime
 
 # Import GitMonitor and DiscordClient from the CLI codebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -31,6 +36,7 @@ MESSAGE_FORMATS = [
 ]
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'desktop_config.json')
+SETTINGS_FILE = CONFIG_FILE  # Use the same config file for simplicity
 
 MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
 
@@ -300,6 +306,91 @@ class ProjectDialog(QDialog):
             'webhooks': self.webhooks.copy()
         }
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None, settings=None):
+        super().__init__(parent)
+        self.setWindowTitle('Settings')
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+
+        # Start with Windows
+        self.start_with_windows_cb = QCheckBox('Start with Windows')
+        layout.addWidget(self.start_with_windows_cb)
+
+        # Scheduled times
+        layout.addWidget(QLabel('Auto-Start Monitoring Schedule'))
+        self.schedule_list = QListWidget()
+        layout.addWidget(self.schedule_list)
+        schedule_btn_layout = QHBoxLayout()
+        self.add_time_btn = QPushButton('Add Time')
+        self.remove_time_btn = QPushButton('Remove Time')
+        schedule_btn_layout.addWidget(self.add_time_btn)
+        schedule_btn_layout.addWidget(self.remove_time_btn)
+        layout.addLayout(schedule_btn_layout)
+
+        # Dialog buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(self.button_box)
+
+        self.add_time_btn.clicked.connect(self.add_time)
+        self.remove_time_btn.clicked.connect(self.remove_selected_time)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+        self.schedules = []  # List of dicts: {'time': 'HH:MM', 'days': [0,1,2,...]}
+        if settings:
+            self.start_with_windows_cb.setChecked(settings.get('start_with_windows', False))
+            self.schedules = settings.get('schedules', [])
+            self.refresh_schedule_list()
+
+    def add_time(self):
+        dialog = TimeDayDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            data = dialog.get_data()
+            self.schedules.append(data)
+            self.refresh_schedule_list()
+
+    def remove_selected_time(self):
+        row = self.schedule_list.currentRow()
+        if row >= 0:
+            self.schedules.pop(row)
+            self.refresh_schedule_list()
+
+    def refresh_schedule_list(self):
+        self.schedule_list.clear()
+        for sched in self.schedules:
+            days = ','.join(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d] for d in sched['days'])
+            self.schedule_list.addItem(f"{sched['time']} ({days})")
+
+    def get_settings(self):
+        return {
+            'start_with_windows': self.start_with_windows_cb.isChecked(),
+            'schedules': self.schedules
+        }
+
+class TimeDayDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Add Scheduled Time')
+        layout = QVBoxLayout(self)
+        self.time_edit = QTimeEdit()
+        self.time_edit.setDisplayFormat('HH:mm')
+        layout.addWidget(QLabel('Time:'))
+        layout.addWidget(self.time_edit)
+        layout.addWidget(QLabel('Days of the Week:'))
+        self.day_cbs = [QCheckBox(day) for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']]
+        for cb in self.day_cbs:
+            layout.addWidget(cb)
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(btn_box)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+
+    def get_data(self):
+        time_str = self.time_edit.time().toString('HH:mm')
+        days = [i for i, cb in enumerate(self.day_cbs) if cb.isChecked()]
+        return {'time': time_str, 'days': days}
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -384,6 +475,10 @@ class MainWindow(QMainWindow):
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
 
         self.monitor_thread = None
+        self.settings = self.load_settings()
+        self.schedule_timer = threading.Thread(target=self.schedule_checker, daemon=True)
+        self.schedule_timer_stop = threading.Event()
+        self.schedule_timer.start()
 
         self.refresh_project_list()
 
@@ -478,8 +573,65 @@ class MainWindow(QMainWindow):
         self.start_monitor_btn.setEnabled(True)
         self.stop_monitor_btn.setEnabled(False)
 
+    def open_settings_dialog(self):
+        dialog = SettingsDialog(self, settings=self.settings)
+        if dialog.exec_() == QDialog.Accepted:
+            self.settings = dialog.get_settings()
+            self.save_settings()
+            self.apply_startup_setting()
+
+    def load_settings(self):
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get('settings', {'start_with_windows': False, 'schedules': []})
+            except Exception:
+                return {'start_with_windows': False, 'schedules': []}
+        return {'start_with_windows': False, 'schedules': []}
+
+    def save_settings(self):
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+        data['settings'] = self.settings
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+
+    def apply_startup_setting(self):
+        if platform.system() == 'Windows':
+            startup_dir = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            shortcut_path = os.path.join(startup_dir, 'UE4GitReporterDesktop.lnk')
+            if self.settings.get('start_with_windows'):
+                # Create shortcut if not exists
+                import winshell
+                from win32com.client import Dispatch
+                target = sys.executable
+                script = os.path.abspath(__file__)
+                shell = Dispatch('WScript.Shell')
+                shortcut = shell.CreateShortCut(shortcut_path)
+                shortcut.Targetpath = target
+                shortcut.Arguments = f'"{script}"'
+                shortcut.WorkingDirectory = os.path.dirname(script)
+                shortcut.save()
+            else:
+                if os.path.exists(shortcut_path):
+                    os.remove(shortcut_path)
+
+    def schedule_checker(self):
+        while not self.schedule_timer_stop.is_set():
+            now = datetime.datetime.now()
+            for sched in self.settings.get('schedules', []):
+                if now.strftime('%H:%M') == sched['time'] and now.weekday() in sched['days']:
+                    if not (self.monitor_thread and self.monitor_thread.isRunning()):
+                        self.start_monitoring()
+            time.sleep(30)
+
     def closeEvent(self, event):
-        # Ensure monitoring is stopped before closing
+        # Ensure monitoring and schedule checker are stopped before closing
+        self.schedule_timer_stop.set()
         if self.monitor_thread and self.monitor_thread.isRunning():
             self.monitor_thread.stop()
             self.monitor_thread.wait()
