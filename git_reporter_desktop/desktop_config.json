@@ -1,0 +1,32 @@
+{
+  "projects": [
+    {
+      "name": "THE GREAT CIRCLE",
+      "path": "A:\\UnrealProjects\\TGC_4_27\\.git",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/1372093327675101215/lu2dCq2uyaMokrizBzPkF0U6omNo29W8Ctx-PE6rLXriGlz3A_iaEKry5IsGb8aRTGz9",
+          "format": "Raw commit messages"
+        }
+      ]
+    },
+    {
+      "name": "Git Reporter",
+      "path": "C:\\Users\\terma\\SoftwareProjects\\z_SENTIENT SOLUTIONS\\SS_GitReporter\\.git",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/1372109298074783775/BxL5z1dmkLRmh1D7m7JISp_xhHxV6BIMzfGawH-uLJBUi12-JjHJ4YxtAzgvo2o5fw4_",
+          "format": "Raw commit messages"
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/1372110145764458587/_gUAfF4oZFi5SwlnniNo2ubQYtu-lp3EGjro_0Htp4SXsQVchoOc0xr_3py3ca7YNytN",
+          "format": "Short interpretation"
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/1372110282284863518/dEIM5GmL6J8prCrEJZ5g9DAzSNbV-wK_eKYIJkeS4NkGdNcHPZVZgUPCcG9MqXnHuKIY",
+          "format": "Daily summary"
+        }
+      ]
+    }
+  ]
+}

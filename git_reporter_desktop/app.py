@@ -10,6 +10,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
 
+# Import GitMonitor and DiscordClient from the CLI codebase
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from git_reporter.monitor import GitMonitor
+from git_reporter.discord_client import DiscordClient
+
 # --- Roadmap ---
 # - Project/webhook management dialogs
 # - System tray integration
@@ -37,6 +42,7 @@ class MonitorWorker(QThread):
         super().__init__()
         self.projects = projects
         self.running = False
+        self.last_commit_hashes = {}  # Track last commit per project
 
     def run(self):
         self.running = True
@@ -46,17 +52,37 @@ class MonitorWorker(QThread):
                 name = project.get('name', 'Unknown')
                 path = project.get('path', '')
                 webhooks = project.get('webhooks', [])
-                # Placeholder: Check for git changes (to be implemented)
-                self.log_signal.emit(f"Checking project '{name}' at {path}...")
-                # Simulate finding changes
-                changes_found = True  # Placeholder
-                if changes_found:
-                    for wh in webhooks:
-                        # Placeholder: Format and send report to Discord webhook
-                        msg = f"[SIM] Would send {wh['format']} report to {wh['webhook']} for '{name}'"
-                        self.log_signal.emit(msg)
-                else:
-                    self.log_signal.emit(f"No changes detected for '{name}'.")
+                if not os.path.exists(path):
+                    self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                    continue
+                try:
+                    monitor = GitMonitor(path, ignored_files=[])
+                except Exception as e:
+                    self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}': {e}")
+                    continue
+                # Get latest commit hash
+                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                if not latest_commit:
+                    self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}'")
+                    continue
+                last_hash = self.last_commit_hashes.get(path)
+                if last_hash == latest_commit:
+                    self.log_signal.emit(f"No new commits for '{name}'.")
+                    continue
+                self.last_commit_hashes[path] = latest_commit
+                # Get changes and format message
+                status, commits = monitor.get_changes()
+                for wh in webhooks:
+                    msg = self.format_message(wh['format'], name, status, commits)
+                    self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}'...")
+                    try:
+                        client = DiscordClient(wh['webhook'])
+                        if client.send_message(msg):
+                            self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}'.")
+                        else:
+                            self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}'.")
+                    except Exception as e:
+                        self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
             self.status_signal.emit('Monitoring cycle complete.')
             for _ in range(MONITOR_INTERVAL_SECONDS):
                 if not self.running:
@@ -67,6 +93,40 @@ class MonitorWorker(QThread):
 
     def stop(self):
         self.running = False
+
+    def format_message(self, fmt, project_name, status, commits):
+        if fmt == 'Raw commit messages':
+            return f"**{project_name}**\nRecent Commits:\n```\n{commits or 'No recent commits.'}\n```"
+        elif fmt == 'Short interpretation':
+            if not commits:
+                return f"**{project_name}**\nNo recent commits."
+            first_line = commits.split('\n')[0]
+            return f"**{project_name}**\nLatest: {first_line}"
+        elif fmt == 'Changelog style':
+            msg = [f"**{project_name} Changelog**"]
+            if status:
+                msg.append("Uncommitted Changes:\n```")
+                msg.append(status)
+                msg.append("```")
+            if commits:
+                msg.append("Recent Commits:\n```")
+                msg.append(commits)
+                msg.append("```")
+            return '\n'.join(msg)
+        elif fmt == 'Daily summary':
+            # For now, just show the last 5 commits and status
+            msg = [f"**{project_name} Daily Summary**"]
+            if commits:
+                msg.append("Commits today:\n```")
+                msg.append(commits)
+                msg.append("```")
+            if status:
+                msg.append("Uncommitted Changes:\n```")
+                msg.append(status)
+                msg.append("```")
+            return '\n'.join(msg)
+        else:
+            return f"**{project_name}**\nNo data."
 
 class WebhookDialog(QDialog):
     def __init__(self, parent=None):
