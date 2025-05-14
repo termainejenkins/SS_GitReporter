@@ -728,6 +728,11 @@ class MainWindow(QMainWindow):
         import_action = QAction('Import Data', self)
         import_action.triggered.connect(self.import_data)
         options_menu.addAction(import_action)
+        self.always_on_top_action = QAction('Always on Top', self, checkable=True)
+        self.always_on_top_action.setChecked(self.settings.get('always_on_top', False))
+        self.always_on_top_action.toggled.connect(self.set_always_on_top)
+        options_menu.addAction(self.always_on_top_action)
+        self.set_always_on_top(self.always_on_top_action.isChecked())
 
         # System tray integration (placeholder)
         self.tray_icon = QSystemTrayIcon(self)
@@ -1016,6 +1021,16 @@ class MainWindow(QMainWindow):
                             self.append_log(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
                     except Exception as e:
                         self.append_log(f"[ERROR] Exception sending to Discord: {e}")
+
+    def set_always_on_top(self, checked):
+        self.settings['always_on_top'] = checked
+        self.save_settings()
+        flags = self.windowFlags()
+        if checked:
+            self.setWindowFlags(flags | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(flags & ~Qt.WindowStaysOnTopHint)
+        self.show()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

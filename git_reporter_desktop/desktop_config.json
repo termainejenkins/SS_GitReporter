@@ -53,6 +53,27 @@
           "frequency": 5
         }
       ]
+    },
+    {
+      "name": "SS_Launcher",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/SS_GameLauncher",
+      "branches": [
+        "main"
+      ],
+      "filters": {
+        "commits": true,
+        "merges": true,
+        "tags": true,
+        "filetypes": ""
+      },
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/1372137845644591154/eN6buj38n-OzvksMxm1CUblqXxkG6gts6xQgPQxt-ZRihVUpVhNuGahef5KQoDINzhkm",
+          "format": "AI Summary",
+          "frequency": 5,
+          "template": ""
+        }
+      ]
     }
   ]
 }
