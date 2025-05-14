@@ -5,7 +5,7 @@ import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
-    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit
+    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
@@ -205,8 +205,12 @@ class ProjectDialog(QDialog):
         form_layout = QFormLayout()
         self.name_edit = QLineEdit()
         self.path_edit = QLineEdit()
+        self.browse_btn = QPushButton('Browse')
+        path_layout = QHBoxLayout()
+        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(self.browse_btn)
         form_layout.addRow('Project Name:', self.name_edit)
-        form_layout.addRow('Project Path:', self.path_edit)
+        form_layout.addRow('Project Path:', path_layout)
         layout.addLayout(form_layout)
 
         # Webhook management
@@ -234,14 +238,31 @@ class ProjectDialog(QDialog):
         self.add_webhook_btn.clicked.connect(self.open_add_webhook_dialog)
         self.edit_webhook_btn.clicked.connect(self.open_edit_webhook_dialog)
         self.remove_webhook_btn.clicked.connect(self.remove_selected_webhook)
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self.validate_and_accept)
         self.cancel_btn.clicked.connect(self.reject)
+        self.browse_btn.clicked.connect(self.browse_path)
 
         if project:
             self.name_edit.setText(project.get('name', ''))
             self.path_edit.setText(project.get('path', ''))
             self.webhooks = [dict(wh) for wh in project.get('webhooks', [])]
             self.refresh_webhook_list()
+
+    def browse_path(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select Project Directory')
+        if folder:
+            self.path_edit.setText(folder)
+
+    def validate_and_accept(self):
+        import os
+        path = self.path_edit.text().strip()
+        if not os.path.isdir(path):
+            QMessageBox.critical(self, 'Invalid Path', 'The specified path does not exist or is not a directory.')
+            return
+        if not os.path.isdir(os.path.join(path, '.git')):
+            QMessageBox.critical(self, 'Invalid Git Repo', 'The specified path is not a valid git repository (missing .git folder).')
+            return
+        self.accept()
 
     def open_add_webhook_dialog(self):
         dialog = WebhookDialog(self, project_name=self.name_edit.text())
