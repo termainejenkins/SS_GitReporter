@@ -3,6 +3,6 @@
 2025-05-14 02:24:28,589 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
 2025-05-14 02:24:28,591 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
 2025-05-14 02:24:28,592 - git_reporter.monitor - ERROR - Failed to generate report - no git data available
-2025-05-14 02:36:08,302 - __main__ - INFO - UE4 Git Reporter started
-Monitoring: A:/UnrealProjects/TGC_4_27
-2025-05-14 02:36:08,334 - git_reporter.monitor - ERROR - Git command failed: fatal: your current branch 'master' does not have any commits yet
+2025-05-14 02:54:28,592 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
+2025-05-14 02:54:28,593 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
+2025-05-14 02:54:28,593 - git_reporter.monitor - ERROR - Failed to generate report - no git data available

@@ -1,12 +1,13 @@
 import sys
 import os
 import json
+import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
-    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem
+    QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
 
 # --- Roadmap ---
@@ -25,6 +26,47 @@ MESSAGE_FORMATS = [
 ]
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'desktop_config.json')
+
+MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
+
+class MonitorWorker(QThread):
+    log_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)
+
+    def __init__(self, projects):
+        super().__init__()
+        self.projects = projects
+        self.running = False
+
+    def run(self):
+        self.running = True
+        self.log_signal.emit('Background monitoring started.')
+        while self.running:
+            for project in self.projects:
+                name = project.get('name', 'Unknown')
+                path = project.get('path', '')
+                webhooks = project.get('webhooks', [])
+                # Placeholder: Check for git changes (to be implemented)
+                self.log_signal.emit(f"Checking project '{name}' at {path}...")
+                # Simulate finding changes
+                changes_found = True  # Placeholder
+                if changes_found:
+                    for wh in webhooks:
+                        # Placeholder: Format and send report to Discord webhook
+                        msg = f"[SIM] Would send {wh['format']} report to {wh['webhook']} for '{name}'"
+                        self.log_signal.emit(msg)
+                else:
+                    self.log_signal.emit(f"No changes detected for '{name}'.")
+            self.status_signal.emit('Monitoring cycle complete.')
+            for _ in range(MONITOR_INTERVAL_SECONDS):
+                if not self.running:
+                    break
+                time.sleep(1)
+        self.log_signal.emit('Background monitoring stopped.')
+        self.status_signal.emit('Monitoring stopped.')
+
+    def stop(self):
+        self.running = False
 
 class WebhookDialog(QDialog):
     def __init__(self, parent=None):
@@ -145,12 +187,27 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         self.add_project_btn = QPushButton('Add Project')
         self.remove_project_btn = QPushButton('Remove Project')
+        self.start_monitor_btn = QPushButton('Start Monitoring')
+        self.stop_monitor_btn = QPushButton('Stop Monitoring')
+        self.stop_monitor_btn.setEnabled(False)
         btn_layout.addWidget(self.add_project_btn)
         btn_layout.addWidget(self.remove_project_btn)
+        btn_layout.addWidget(self.start_monitor_btn)
+        btn_layout.addWidget(self.stop_monitor_btn)
         main_layout.addLayout(btn_layout)
 
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
+
+        # Log viewer (hidden by default)
+        self.log_viewer = QTextEdit()
+        self.log_viewer.setReadOnly(True)
+        self.log_viewer.hide()
+        main_layout.addWidget(self.log_viewer)
+
+        # Status bar
+        self.status_bar = self.statusBar()
+        self.status_bar.showMessage('Ready')
 
         # Menu bar
         menubar = self.menuBar()
@@ -158,6 +215,12 @@ class MainWindow(QMainWindow):
         exit_action = QAction('Exit', self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+        view_menu = menubar.addMenu('View')
+        toggle_log_action = QAction('Show Log Viewer', self, checkable=True)
+        toggle_log_action.setChecked(False)
+        toggle_log_action.triggered.connect(self.toggle_log_viewer)
+        view_menu.addAction(toggle_log_action)
 
         # System tray integration (placeholder)
         self.tray_icon = QSystemTrayIcon(self)
@@ -175,12 +238,14 @@ class MainWindow(QMainWindow):
         # Connect buttons to dialogs
         self.add_project_btn.clicked.connect(self.open_add_project_dialog)
         self.remove_project_btn.clicked.connect(self.remove_selected_project)
+        self.start_monitor_btn.clicked.connect(self.start_monitoring)
+        self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
+
+        self.monitor_thread = None
 
         self.refresh_project_list()
 
         # TODO: Add webhook management UI
-        # TODO: Add background monitoring logic
-        # TODO: Add log viewer
         # TODO: Implement message formatting logic
 
     def open_add_project_dialog(self):
@@ -190,7 +255,8 @@ class MainWindow(QMainWindow):
             self.projects.append(data)
             self.save_config()
             self.refresh_project_list()
-            QMessageBox.information(self, 'Project Added', f"Project '{data['name']}' added with {len(data['webhooks'])} webhook{'s' if len(data['webhooks']) != 1 else ''}.")
+            self.append_log(f"Project '{data['name']}' added with {len(data['webhooks'])} webhook(s).")
+            self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
 
     def remove_selected_project(self):
         row = self.project_list.currentRow()
@@ -198,7 +264,8 @@ class MainWindow(QMainWindow):
             removed = self.projects.pop(row)
             self.save_config()
             self.refresh_project_list()
-            QMessageBox.information(self, 'Project Removed', f"Project '{removed['name']}' removed.")
+            self.append_log(f"Project '{removed['name']}' removed.")
+            self.status_bar.showMessage(f"Project '{removed['name']}' removed.", 3000)
         else:
             QMessageBox.warning(self, 'No Selection', 'Please select a project to remove.')
 
@@ -214,6 +281,7 @@ class MainWindow(QMainWindow):
                 json.dump({'projects': self.projects}, f, indent=2)
         except Exception as e:
             QMessageBox.critical(self, 'Save Error', f'Failed to save config: {e}')
+            self.append_log(f"Error saving config: {e}")
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -223,6 +291,35 @@ class MainWindow(QMainWindow):
                     self.projects = data.get('projects', [])
             except Exception as e:
                 QMessageBox.critical(self, 'Load Error', f'Failed to load config: {e}')
+                self.append_log(f"Error loading config: {e}")
+
+    def append_log(self, message):
+        self.log_viewer.append(message)
+
+    def toggle_log_viewer(self, checked):
+        self.log_viewer.setVisible(checked)
+
+    def start_monitoring(self):
+        if self.monitor_thread and self.monitor_thread.isRunning():
+            QMessageBox.warning(self, 'Monitoring', 'Monitoring is already running.')
+            return
+        self.monitor_thread = MonitorWorker(self.projects)
+        self.monitor_thread.log_signal.connect(self.append_log)
+        self.monitor_thread.status_signal.connect(self.status_bar.showMessage)
+        self.monitor_thread.start()
+        self.start_monitor_btn.setEnabled(False)
+        self.stop_monitor_btn.setEnabled(True)
+        self.status_bar.showMessage('Monitoring started.', 3000)
+        self.append_log('Monitoring started.')
+
+    def stop_monitoring(self):
+        if self.monitor_thread and self.monitor_thread.isRunning():
+            self.monitor_thread.stop()
+            self.monitor_thread.wait()
+            self.append_log('Monitoring stopped.')
+            self.status_bar.showMessage('Monitoring stopped.', 3000)
+        self.start_monitor_btn.setEnabled(True)
+        self.stop_monitor_btn.setEnabled(False)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
