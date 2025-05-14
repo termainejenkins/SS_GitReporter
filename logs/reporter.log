@@ -1,1 +1,5 @@
 2025-05-14 02:16:59,415 - __main__ - INFO - UE4 Git Reporter started
+2025-05-14 02:24:28,588 - __main__ - INFO - UE4 Git Reporter started
+2025-05-14 02:24:28,589 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
+2025-05-14 02:24:28,591 - git_reporter.monitor - ERROR - Error running git command: [WinError 3] The system cannot find the path specified: 'A:/UnrealProjects/TGC_4_27'
+2025-05-14 02:24:28,592 - git_reporter.monitor - ERROR - Failed to generate report - no git data available

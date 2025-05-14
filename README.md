@@ -1,30 +1,31 @@
-# Git Reporter for UE4.27
+# UE4 Git Reporter
 
-An automated tool that monitors your Unreal Engine 4.27 git repository and sends commit notifications to Discord via webhooks.
+An automated tool that monitors your Unreal Engine 4 project's git repository and reports changes to Discord via webhooks.
 
 ## Features
-- Monitors git repository changes
-- Generates detailed commit summaries
-- Automatically detects UE4.27 specific file changes
-- Sends formatted messages to Discord via webhooks
+- Automatic git change detection
+- Discord webhook integration
+- Configurable monitoring intervals
+- Filtered reporting (ignores binary files, temporary directories)
+- Real-time change notifications
 
-## Setup
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file with your Discord webhook URL:
-   ```
-   DISCORD_WEBHOOK_URL=your_webhook_url_here
-   REPO_PATH=path_to_your_ue4_project
-   ```
-4. Run the script:
-   ```bash
-   python git_reporter.py
-   ```
+## Credits
+Created by **Termaine Jenkins** (TJ)  
+SENTIENT SOLUTIONS LLC
 
-## Configuration
-- The script can be configured to run on startup or as a scheduled task
-- Customize the commit message format in the config.py file
-- Add additional file type monitoring in the file_types.py 
+## Quick Start
+1. Ensure Python 3.x is installed
+2. Install dependencies: `py -m pip install -r requirements.txt`
+3. Configure `config.json` with your:
+   - UE4 project path
+   - Discord webhook URL
+4. Run: `py main.py`
+
+## Documentation
+- [Project Requirements](docs/PROJECT_REQUIREMENTS.md)
+- [Design Decisions](docs/DESIGN_DECISIONS.md)
+- [Development Log](docs/DEVLOG.md)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
+
+## License
+Copyright © 2024 SENTIENT SOLUTIONS LLC. All rights reserved. 
