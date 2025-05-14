@@ -15,6 +15,7 @@ import platform
 import threading
 import datetime
 import subprocess
+import re
 
 # Import GitMonitor and DiscordClient from the CLI codebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -148,30 +149,70 @@ class MonitorWorker(QThread):
     @staticmethod
     def format_message(fmt, project_name, status, commits, branch='', template=None, repo_path=None):
         if fmt == 'AI Summary':
-            # Generate a local summary from git status and diff
-            import subprocess, os
+            import subprocess, os, re
             summary = ''
+            emoji_map = {
+                'fix': '🐛', 'bug': '🐛',
+                'feature': '✨', 'add': '✨',
+                'docs': '📝', 'doc': '📝',
+                'refactor': '♻️',
+                'breaking change': '⚠️',
+                'delete': '🔥', 'remove': '🔥',
+                'build': '🛠️', 'chore': '🛠️',
+                'deps': '📦', 'dependency': '📦',
+                'test': '🚨', 'ci': '🚨',
+            }
             if repo_path and os.path.isdir(os.path.join(repo_path, '.git')):
                 try:
+                    branch_name = branch or ''
+                    if not branch_name:
+                        branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+                    log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+                    commit_msg, author = log_out.split('||') if '||' in log_out else (log_out, '')
                     status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
                     diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
-                    added, modified, deleted = 0, 0, 0
-                    files = []
+                    added, modified, deleted = [], [], []
+                    file_types = {}
                     for line in status_out.splitlines():
+                        fname = line[3:].strip() if len(line) > 3 else ''
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext:
+                            file_types[ext] = file_types.get(ext, 0) + 1
                         if line.startswith('A '):
-                            added += 1
-                            files.append(line[2:].strip())
+                            added.append(fname)
                         elif line.startswith('M '):
-                            modified += 1
-                            files.append(line[2:].strip())
+                            modified.append(fname)
                         elif line.startswith('D '):
-                            deleted += 1
-                            files.append(line[2:].strip())
-                    summary = f"Added {added} file(s), modified {modified} file(s), deleted {deleted} file(s). "
-                    if files:
-                        summary += "Main changes: " + ', '.join(files[:5]) + (', ...' if len(files) > 5 else '')
+                            deleted.append(fname)
+                    # Detect keywords and emojis
+                    keywords = []
+                    emojis = set()
+                    for word, emoji in emoji_map.items():
+                        if re.search(rf'\b{word}\b', commit_msg, re.IGNORECASE):
+                            keywords.append(word)
+                            emojis.add(emoji)
+                    # Also scan file names for delete/remove/build/test
+                    for fname in added + modified + deleted:
+                        for word, emoji in emoji_map.items():
+                            if word in fname.lower():
+                                emojis.add(emoji)
+                    # Format summary with emojis
+                    summary = f"Branch: {branch_name}\n"
+                    summary += f"Latest commit: {commit_msg.strip()} (by {author.strip()})\n"
+                    if added:
+                        summary += f"{emoji_map.get('add','')} Added: {', '.join(added)}\n"
+                    if modified:
+                        summary += f"{emoji_map.get('feature','')} Modified: {', '.join(modified)}\n"
+                    if deleted:
+                        summary += f"{emoji_map.get('delete','')} Deleted: {', '.join(deleted)}\n"
+                    if file_types:
+                        summary += "File types: " + ', '.join(f"{k} x{v}" for k, v in file_types.items()) + "\n"
                     if diffstat.strip():
-                        summary += f"\nDiffstat: {diffstat.strip()}"
+                        summary += f"Diffstat:\n{diffstat.strip()}\n"
+                    if keywords:
+                        summary += f"Keywords: {' '.join([emoji_map.get(k, '') for k in keywords])} ({', '.join(keywords)})\n"
+                    if emojis and not keywords:
+                        summary += f"Visual cues: {' '.join(emojis)}\n"
                 except Exception as e:
                     summary = f"[Summary generation failed: {e}]"
             else:
@@ -326,35 +367,69 @@ class WebhookDialog(QDialog):
         QMessageBox.information(self, 'Preview Message', msg)
 
     def generate_summary(self):
-        # Use local git status and diff to generate a summary
-        import subprocess, os
+        import subprocess, os, re
         repo_path = os.path.dirname(self.parent().path_edit.text()) if hasattr(self.parent(), 'path_edit') else os.getcwd()
+        emoji_map = {
+            'fix': '🐛', 'bug': '🐛',
+            'feature': '✨', 'add': '✨',
+            'docs': '📝', 'doc': '📝',
+            'refactor': '♻️',
+            'breaking change': '⚠️',
+            'delete': '🔥', 'remove': '🔥',
+            'build': '🛠️', 'chore': '🛠️',
+            'deps': '📦', 'dependency': '📦',
+            'test': '🚨', 'ci': '🚨',
+        }
         if not os.path.isdir(os.path.join(repo_path, '.git')):
             QMessageBox.warning(self, 'Generate Summary', 'Not a valid git repository.')
             return
         try:
-            status = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
+            branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+            log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+            commit_msg, author = log_out.split('||') if '||' in log_out else (log_out, '')
+            status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
             diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
-            added, modified, deleted = 0, 0, 0
-            files = []
-            for line in status.splitlines():
+            added, modified, deleted = [], [], []
+            file_types = {}
+            for line in status_out.splitlines():
+                fname = line[3:].strip() if len(line) > 3 else ''
+                ext = os.path.splitext(fname)[1].lower()
+                if ext:
+                    file_types[ext] = file_types.get(ext, 0) + 1
                 if line.startswith('A '):
-                    added += 1
-                    files.append(line[2:].strip())
+                    added.append(fname)
                 elif line.startswith('M '):
-                    modified += 1
-                    files.append(line[2:].strip())
+                    modified.append(fname)
                 elif line.startswith('D '):
-                    deleted += 1
-                    files.append(line[2:].strip())
-            summary = f"Added {added} file(s), modified {modified} file(s), deleted {deleted} file(s). "
-            if files:
-                summary += "Main changes: " + ', '.join(files[:5]) + (', ...' if len(files) > 5 else '')
+                    deleted.append(fname)
+            keywords = []
+            emojis = set()
+            for word, emoji in emoji_map.items():
+                if re.search(rf'\b{word}\b', commit_msg, re.IGNORECASE):
+                    keywords.append(word)
+                    emojis.add(emoji)
+            for fname in added + modified + deleted:
+                for word, emoji in emoji_map.items():
+                    if word in fname.lower():
+                        emojis.add(emoji)
+            summary = f"Branch: {branch_name}\n"
+            summary += f"Latest commit: {commit_msg.strip()} (by {author.strip()})\n"
+            if added:
+                summary += f"{emoji_map.get('add','')} Added: {', '.join(added)}\n"
+            if modified:
+                summary += f"{emoji_map.get('feature','')} Modified: {', '.join(modified)}\n"
+            if deleted:
+                summary += f"{emoji_map.get('delete','')} Deleted: {', '.join(deleted)}\n"
+            if file_types:
+                summary += "File types: " + ', '.join(f"{k} x{v}" for k, v in file_types.items()) + "\n"
             if diffstat.strip():
-                summary += f"\nDiffstat: {diffstat.strip()}"
+                summary += f"Diffstat:\n{diffstat.strip()}\n"
+            if keywords:
+                summary += f"Keywords: {' '.join([emoji_map.get(k, '') for k in keywords])} ({', '.join(keywords)})\n"
+            if emojis and not keywords:
+                summary += f"Visual cues: {' '.join(emojis)}\n"
         except Exception as e:
             summary = f"[Summary generation failed: {e}]"
-        # Insert summary at cursor or replace {summary}
         cursor = self.template_edit.textCursor()
         template = self.template_edit.toPlainText()
         if '{summary}' in template:
