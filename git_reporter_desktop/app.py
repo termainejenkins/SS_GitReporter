@@ -680,6 +680,17 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.stop_monitor_btn)
         main_layout.addLayout(btn_layout)
 
+        # Check All Now controls
+        check_layout = QHBoxLayout()
+        self.check_format_combo = QComboBox()
+        self.check_format_combo.addItems(MESSAGE_FORMATS)
+        self.check_now_btn = QPushButton('Check All Now')
+        check_layout.addWidget(QLabel('Format:'))
+        check_layout.addWidget(self.check_format_combo)
+        check_layout.addWidget(self.check_now_btn)
+        main_layout.addLayout(check_layout)
+        self.check_now_btn.clicked.connect(self.check_all_now)
+
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
 
@@ -942,6 +953,69 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, 'Import Data', 'Import successful!')
             except Exception as e:
                 QMessageBox.critical(self, 'Import Data', f'Import failed: {e}')
+
+    def check_all_now(self):
+        fmt = self.check_format_combo.currentText()
+        import time
+        now = time.time()
+        for project in self.projects:
+            name = project.get('name', 'Unknown')
+            path = project.get('path', '')
+            branches = project.get('branches', []) or ['']
+            filters = project.get('filters', {})
+            webhooks = project.get('webhooks', [])
+            if not os.path.exists(path):
+                self.append_log(f"[ERROR] Project path does not exist: {path}")
+                continue
+            for branch in branches:
+                try:
+                    if branch:
+                        subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
+                    monitor = GitMonitor(path, ignored_files=[])
+                except Exception as e:
+                    self.append_log(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                    continue
+                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                if not latest_commit:
+                    self.append_log(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                    continue
+                status, commits = monitor.get_changes()
+                # Apply filters as in MonitorWorker
+                send = False
+                filtered_commits = ''
+                filtered_status = ''
+                if filters.get('commits', True) and commits:
+                    filtered_commits = commits
+                    send = True
+                if filters.get('merges', False) and commits:
+                    if any('merge' in line.lower() for line in commits.split('\n')):
+                        filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
+                        send = True
+                if filters.get('tags', False):
+                    tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
+                    if tags:
+                        filtered_commits += f"\nTags: {tags}"
+                        send = True
+                if filters.get('filetypes', '') and status:
+                    types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
+                    filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
+                    if filtered_lines:
+                        filtered_status = '\n'.join(filtered_lines)
+                        send = True
+                if not send:
+                    self.append_log(f"No matching changes for '{name}' [{branch}].")
+                    continue
+                for wh in webhooks:
+                    msg = MonitorWorker.format_message(fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
+                    self.append_log(f"[Check Now] Sending {fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
+                    try:
+                        client = DiscordClient(wh['webhook'])
+                        if client.send_message(msg):
+                            self.append_log(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                        else:
+                            self.append_log(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                    except Exception as e:
+                        self.append_log(f"[ERROR] Exception sending to Discord: {e}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
