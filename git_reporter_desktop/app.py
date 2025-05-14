@@ -478,6 +478,13 @@ class MainWindow(QMainWindow):
         self.start_monitor_btn.setEnabled(True)
         self.stop_monitor_btn.setEnabled(False)
 
+    def closeEvent(self, event):
+        # Ensure monitoring is stopped before closing
+        if self.monitor_thread and self.monitor_thread.isRunning():
+            self.monitor_thread.stop()
+            self.monitor_thread.wait()
+        event.accept()
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
