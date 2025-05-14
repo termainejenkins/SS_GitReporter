@@ -236,9 +236,12 @@ class WebhookDialog(QDialog):
         adv_layout = QVBoxLayout(advanced_tab)
         adv_layout.addWidget(QLabel('Custom Message Template (optional):'))
         self.template_edit = QTextEdit()
-        self.template_edit.setPlaceholderText('Use {commit_message}, {author}, {files_changed}, {branch}, {project}...')
+        self.template_edit.setPlaceholderText('Use {commit_message}, {author}, {files_changed}, {branch}, {project}, {summary}...')
         adv_layout.addWidget(self.template_edit)
         adv_layout.addWidget(QLabel('Leave blank to use the selected format.'))
+        self.summary_btn = QPushButton('Generate Summary')
+        adv_layout.addWidget(self.summary_btn)
+        self.summary_btn.clicked.connect(self.generate_summary)
 
         self.ok_btn = QPushButton('OK')
         self.cancel_btn = QPushButton('Cancel')
@@ -290,6 +293,44 @@ class WebhookDialog(QDialog):
         template = self.template_edit.toPlainText().strip()
         msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits, self.branch, template)
         QMessageBox.information(self, 'Preview Message', msg)
+
+    def generate_summary(self):
+        # Use local git status and diff to generate a summary
+        import subprocess, os
+        repo_path = os.path.dirname(self.parent().path_edit.text()) if hasattr(self.parent(), 'path_edit') else os.getcwd()
+        if not os.path.isdir(os.path.join(repo_path, '.git')):
+            QMessageBox.warning(self, 'Generate Summary', 'Not a valid git repository.')
+            return
+        try:
+            status = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
+            diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
+            added, modified, deleted = 0, 0, 0
+            files = []
+            for line in status.splitlines():
+                if line.startswith('A '):
+                    added += 1
+                    files.append(line[2:].strip())
+                elif line.startswith('M '):
+                    modified += 1
+                    files.append(line[2:].strip())
+                elif line.startswith('D '):
+                    deleted += 1
+                    files.append(line[2:].strip())
+            summary = f"Added {added} file(s), modified {modified} file(s), deleted {deleted} file(s). "
+            if files:
+                summary += "Main changes: " + ', '.join(files[:5]) + (', ...' if len(files) > 5 else '')
+            if diffstat.strip():
+                summary += f"\nDiffstat: {diffstat.strip()}"
+        except Exception as e:
+            summary = f"[Summary generation failed: {e}]"
+        # Insert summary at cursor or replace {summary}
+        cursor = self.template_edit.textCursor()
+        template = self.template_edit.toPlainText()
+        if '{summary}' in template:
+            template = template.replace('{summary}', summary)
+            self.template_edit.setPlainText(template)
+        else:
+            cursor.insertText(summary)
 
 class ProjectDialog(QDialog):
     def __init__(self, parent=None, project=None):
