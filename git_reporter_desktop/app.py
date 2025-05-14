@@ -621,6 +621,12 @@ class MainWindow(QMainWindow):
         toggle_log_action.triggered.connect(self.toggle_log_viewer)
         view_menu.addAction(toggle_log_action)
 
+        # Add Options menu
+        options_menu = menubar.addMenu('Options')
+        settings_action = QAction('Settings', self)
+        settings_action.triggered.connect(self.open_settings_dialog)
+        options_menu.addAction(settings_action)
+
         # System tray integration (placeholder)
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
