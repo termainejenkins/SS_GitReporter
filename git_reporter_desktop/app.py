@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
-    QTimeEdit, QCheckBox, QDialogButtonBox
+    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
@@ -49,11 +49,13 @@ class MonitorWorker(QThread):
         self.projects = projects
         self.running = False
         self.last_commit_hashes = {}  # Track last commit per project
+        self.last_sent_times = {}     # Track last sent time per webhook
 
     def run(self):
         self.running = True
         self.log_signal.emit('Background monitoring started.')
         while self.running:
+            now = time.time()
             for project in self.projects:
                 name = project.get('name', 'Unknown')
                 path = project.get('path', '')
@@ -79,12 +81,19 @@ class MonitorWorker(QThread):
                 # Get changes and format message
                 status, commits = monitor.get_changes()
                 for wh in webhooks:
+                    wh_id = f"{path}|{wh['webhook']}"
+                    freq = int(wh.get('frequency', 60))
+                    last_sent = self.last_sent_times.get(wh_id, 0)
+                    if now - last_sent < freq * 60:
+                        self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' (frequency not elapsed)")
+                        continue
                     msg = self.format_message(wh['format'], name, status, commits)
                     self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}'...")
                     try:
                         client = DiscordClient(wh['webhook'])
                         if client.send_message(msg):
                             self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}'.")
+                            self.last_sent_times[wh_id] = now
                         else:
                             self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}'.")
                     except Exception as e:
@@ -144,11 +153,16 @@ class WebhookDialog(QDialog):
         self.webhook_edit = QLineEdit()
         self.format_combo = QComboBox()
         self.format_combo.addItems(MESSAGE_FORMATS)
+        self.freq_spin = QSpinBox()
+        self.freq_spin.setRange(5, 1440)
+        self.freq_spin.setValue(60)
+        self.freq_spin.setSuffix(' min')
         self.test_btn = QPushButton('Test')
         self.preview_btn = QPushButton('Preview')
 
         layout.addRow('Discord Webhook:', self.webhook_edit)
         layout.addRow('Message Format:', self.format_combo)
+        layout.addRow('Frequency (minutes):', self.freq_spin)
         layout.addRow(self.test_btn, self.preview_btn)
 
         btn_layout = QHBoxLayout()
@@ -173,11 +187,13 @@ class WebhookDialog(QDialog):
             idx = self.format_combo.findText(webhook.get('format', MESSAGE_FORMATS[0]))
             if idx >= 0:
                 self.format_combo.setCurrentIndex(idx)
+            self.freq_spin.setValue(int(webhook.get('frequency', 60)))
 
     def get_data(self):
         return {
             'webhook': self.webhook_edit.text(),
-            'format': self.format_combo.currentText()
+            'format': self.format_combo.currentText(),
+            'frequency': self.freq_spin.value()
         }
 
     def test_webhook(self):
