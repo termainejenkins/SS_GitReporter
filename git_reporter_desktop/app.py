@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
-    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox
+    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
@@ -14,6 +14,7 @@ import shutil
 import platform
 import threading
 import datetime
+import subprocess
 
 # Import GitMonitor and DiscordClient from the CLI codebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -143,6 +144,14 @@ class MonitorWorker(QThread):
         else:
             return f"**{project_name}**\nNo data."
 
+def get_git_branches(repo_path):
+    try:
+        result = subprocess.run(['git', 'branch', '--list'], cwd=repo_path, capture_output=True, text=True, check=True)
+        branches = [line.strip().lstrip('* ').strip() for line in result.stdout.splitlines() if line.strip()]
+        return branches
+    except Exception:
+        return []
+
 class WebhookDialog(QDialog):
     def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None):
         super().__init__(parent)
@@ -235,6 +244,31 @@ class ProjectDialog(QDialog):
         form_layout.addRow('Project Path:', path_layout)
         layout.addLayout(form_layout)
 
+        # Branch selection
+        self.branch_group = QGroupBox('Branches to Monitor')
+        branch_layout = QVBoxLayout()
+        self.branch_checks = []
+        self.branch_group.setLayout(branch_layout)
+        layout.addWidget(self.branch_group)
+        self.path_edit.textChanged.connect(self.update_branches)
+        self.update_branches()  # Populate if editing
+
+        # Change type filtering
+        self.filter_group = QGroupBox('Change Type Filters')
+        filter_layout = QGridLayout()
+        self.commit_cb = QCheckBox('Commits')
+        self.merge_cb = QCheckBox('Merges')
+        self.tag_cb = QCheckBox('Tags')
+        self.filetype_edit = QLineEdit()
+        self.filetype_edit.setPlaceholderText('e.g. .cpp,.uasset')
+        filter_layout.addWidget(self.commit_cb, 0, 0)
+        filter_layout.addWidget(self.merge_cb, 0, 1)
+        filter_layout.addWidget(self.tag_cb, 0, 2)
+        filter_layout.addWidget(QLabel('File Types:'), 1, 0)
+        filter_layout.addWidget(self.filetype_edit, 1, 1, 1, 2)
+        self.filter_group.setLayout(filter_layout)
+        layout.addWidget(self.filter_group)
+
         # Webhook management
         self.webhook_list = QListWidget()
         layout.addWidget(QLabel('Webhooks'))
@@ -269,6 +303,18 @@ class ProjectDialog(QDialog):
             self.path_edit.setText(project.get('path', ''))
             self.webhooks = [dict(wh) for wh in project.get('webhooks', [])]
             self.refresh_webhook_list()
+            # Restore branch and filter settings
+            self.selected_branches = set(project.get('branches', []))
+            self.update_branches()
+            filters = project.get('filters', {})
+            self.commit_cb.setChecked(filters.get('commits', True))
+            self.merge_cb.setChecked(filters.get('merges', False))
+            self.tag_cb.setChecked(filters.get('tags', False))
+            self.filetype_edit.setText(filters.get('filetypes', ''))
+        else:
+            self.selected_branches = set()
+            self.update_branches()
+            self.commit_cb.setChecked(True)
 
     def browse_path(self):
         folder = QFileDialog.getExistingDirectory(self, 'Select Project Directory')
@@ -315,10 +361,38 @@ class ProjectDialog(QDialog):
         for wh in self.webhooks:
             self.webhook_list.addItem(f"{wh['webhook']} ({wh['format']})")
 
+    def update_branches(self):
+        repo_path = self.path_edit.text().strip()
+        branches = get_git_branches(repo_path) if os.path.isdir(os.path.join(repo_path, '.git')) else []
+        # Remove old checkboxes
+        for cb in self.branch_checks:
+            self.branch_group.layout().removeWidget(cb)
+            cb.deleteLater()
+        self.branch_checks = []
+        for branch in branches:
+            cb = QCheckBox(branch)
+            if branch in getattr(self, 'selected_branches', set()):
+                cb.setChecked(True)
+            self.branch_group.layout().addWidget(cb)
+            self.branch_checks.append(cb)
+
+    def get_selected_branches(self):
+        return [cb.text() for cb in self.branch_checks if cb.isChecked()]
+
+    def get_filters(self):
+        return {
+            'commits': self.commit_cb.isChecked(),
+            'merges': self.merge_cb.isChecked(),
+            'tags': self.tag_cb.isChecked(),
+            'filetypes': self.filetype_edit.text().strip()
+        }
+
     def get_data(self):
         return {
             'name': self.name_edit.text(),
             'path': self.path_edit.text(),
+            'branches': self.get_selected_branches(),
+            'filters': self.get_filters(),
             'webhooks': self.webhooks.copy()
         }
 
