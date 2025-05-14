@@ -129,18 +129,21 @@ class MonitorWorker(QThread):
             return f"**{project_name}**\nNo data."
 
 class WebhookDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None):
         super().__init__(parent)
-        self.setWindowTitle('Add Webhook')
+        self.setWindowTitle('Add/Edit Webhook')
         self.setModal(True)
         layout = QFormLayout(self)
 
         self.webhook_edit = QLineEdit()
         self.format_combo = QComboBox()
         self.format_combo.addItems(MESSAGE_FORMATS)
+        self.test_btn = QPushButton('Test')
+        self.preview_btn = QPushButton('Preview')
 
         layout.addRow('Discord Webhook:', self.webhook_edit)
         layout.addRow('Message Format:', self.format_combo)
+        layout.addRow(self.test_btn, self.preview_btn)
 
         btn_layout = QHBoxLayout()
         self.ok_btn = QPushButton('OK')
@@ -151,6 +154,19 @@ class WebhookDialog(QDialog):
 
         self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
+        self.test_btn.clicked.connect(self.test_webhook)
+        self.preview_btn.clicked.connect(self.preview_message)
+
+        # For preview/test
+        self.project_name = project_name or 'Project'
+        self.status = status or 'No status.'
+        self.commits = commits or 'No commits.'
+
+        if webhook:
+            self.webhook_edit.setText(webhook.get('webhook', ''))
+            idx = self.format_combo.findText(webhook.get('format', MESSAGE_FORMATS[0]))
+            if idx >= 0:
+                self.format_combo.setCurrentIndex(idx)
 
     def get_data(self):
         return {
@@ -158,10 +174,31 @@ class WebhookDialog(QDialog):
             'format': self.format_combo.currentText()
         }
 
+    def test_webhook(self):
+        url = self.webhook_edit.text().strip()
+        fmt = self.format_combo.currentText()
+        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits)
+        if not url:
+            QMessageBox.warning(self, 'Test Webhook', 'Please enter a webhook URL.')
+            return
+        try:
+            client = DiscordClient(url)
+            if client.send_message(msg):
+                QMessageBox.information(self, 'Test Webhook', 'Test message sent successfully!')
+            else:
+                QMessageBox.critical(self, 'Test Webhook', 'Failed to send test message.')
+        except Exception as e:
+            QMessageBox.critical(self, 'Test Webhook', f'Error: {e}')
+
+    def preview_message(self):
+        fmt = self.format_combo.currentText()
+        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits)
+        QMessageBox.information(self, 'Preview Message', msg)
+
 class ProjectDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, project=None):
         super().__init__(parent)
-        self.setWindowTitle('Add Project')
+        self.setWindowTitle('Add/Edit Project')
         self.setModal(True)
         layout = QVBoxLayout(self)
 
@@ -178,8 +215,10 @@ class ProjectDialog(QDialog):
         layout.addWidget(self.webhook_list)
         webhook_btn_layout = QHBoxLayout()
         self.add_webhook_btn = QPushButton('Add Webhook')
+        self.edit_webhook_btn = QPushButton('Edit Webhook')
         self.remove_webhook_btn = QPushButton('Remove Webhook')
         webhook_btn_layout.addWidget(self.add_webhook_btn)
+        webhook_btn_layout.addWidget(self.edit_webhook_btn)
         webhook_btn_layout.addWidget(self.remove_webhook_btn)
         layout.addLayout(webhook_btn_layout)
 
@@ -193,16 +232,34 @@ class ProjectDialog(QDialog):
 
         self.webhooks = []
         self.add_webhook_btn.clicked.connect(self.open_add_webhook_dialog)
+        self.edit_webhook_btn.clicked.connect(self.open_edit_webhook_dialog)
         self.remove_webhook_btn.clicked.connect(self.remove_selected_webhook)
         self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
 
+        if project:
+            self.name_edit.setText(project.get('name', ''))
+            self.path_edit.setText(project.get('path', ''))
+            self.webhooks = [dict(wh) for wh in project.get('webhooks', [])]
+            self.refresh_webhook_list()
+
     def open_add_webhook_dialog(self):
-        dialog = WebhookDialog(self)
+        dialog = WebhookDialog(self, project_name=self.name_edit.text())
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_data()
             self.webhooks.append(data)
             self.refresh_webhook_list()
+
+    def open_edit_webhook_dialog(self):
+        row = self.webhook_list.currentRow()
+        if row >= 0:
+            wh = self.webhooks[row]
+            dialog = WebhookDialog(self, webhook=wh, project_name=self.name_edit.text())
+            if dialog.exec_() == QDialog.Accepted:
+                self.webhooks[row] = dialog.get_data()
+                self.refresh_webhook_list()
+        else:
+            QMessageBox.warning(self, 'Edit Webhook', 'Please select a webhook to edit.')
 
     def remove_selected_webhook(self):
         row = self.webhook_list.currentRow()
@@ -246,11 +303,13 @@ class MainWindow(QMainWindow):
 
         btn_layout = QHBoxLayout()
         self.add_project_btn = QPushButton('Add Project')
+        self.edit_project_btn = QPushButton('Edit Project')
         self.remove_project_btn = QPushButton('Remove Project')
         self.start_monitor_btn = QPushButton('Start Monitoring')
         self.stop_monitor_btn = QPushButton('Stop Monitoring')
         self.stop_monitor_btn.setEnabled(False)
         btn_layout.addWidget(self.add_project_btn)
+        btn_layout.addWidget(self.edit_project_btn)
         btn_layout.addWidget(self.remove_project_btn)
         btn_layout.addWidget(self.start_monitor_btn)
         btn_layout.addWidget(self.stop_monitor_btn)
@@ -297,16 +356,15 @@ class MainWindow(QMainWindow):
 
         # Connect buttons to dialogs
         self.add_project_btn.clicked.connect(self.open_add_project_dialog)
+        self.edit_project_btn.clicked.connect(self.open_edit_project_dialog)
         self.remove_project_btn.clicked.connect(self.remove_selected_project)
         self.start_monitor_btn.clicked.connect(self.start_monitoring)
         self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
+        self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
 
         self.monitor_thread = None
 
         self.refresh_project_list()
-
-        # TODO: Add webhook management UI
-        # TODO: Implement message formatting logic
 
     def open_add_project_dialog(self):
         dialog = ProjectDialog(self)
@@ -317,6 +375,20 @@ class MainWindow(QMainWindow):
             self.refresh_project_list()
             self.append_log(f"Project '{data['name']}' added with {len(data['webhooks'])} webhook(s).")
             self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
+
+    def open_edit_project_dialog(self, item=None):
+        row = self.project_list.currentRow() if item is None else self.project_list.row(item)
+        if row >= 0:
+            project = self.projects[row]
+            dialog = ProjectDialog(self, project=project)
+            if dialog.exec_() == QDialog.Accepted:
+                self.projects[row] = dialog.get_data()
+                self.save_config()
+                self.refresh_project_list()
+                self.append_log(f"Project '{project['name']}' updated.")
+                self.status_bar.showMessage(f"Project '{project['name']}' updated.", 3000)
+        else:
+            QMessageBox.warning(self, 'Edit Project', 'Please select a project to edit.')
 
     def remove_selected_project(self):
         row = self.project_list.currentRow()
