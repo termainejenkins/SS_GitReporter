@@ -377,7 +377,11 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
 
     def open_edit_project_dialog(self, item=None):
-        row = self.project_list.currentRow() if item is None else self.project_list.row(item)
+        from PyQt5.QtWidgets import QListWidgetItem
+        if isinstance(item, QListWidgetItem):
+            row = self.project_list.row(item)
+        else:
+            row = self.project_list.currentRow()
         if row >= 0:
             project = self.projects[row]
             dialog = ProjectDialog(self, project=project)
