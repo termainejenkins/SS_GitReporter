@@ -1,4 +1,6 @@
 import sys
+import os
+import json
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
@@ -21,6 +23,8 @@ MESSAGE_FORMATS = [
     'Changelog style',
     'Daily summary'
 ]
+
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'desktop_config.json')
 
 class WebhookDialog(QDialog):
     def __init__(self, parent=None):
@@ -123,8 +127,9 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 800, 500)
         self.setWindowIcon(QIcon(self.style().standardIcon(QStyle.SP_ComputerIcon)))
 
-        # In-memory project storage (to be replaced with persistent config)
+        # In-memory project storage (persisted to config file)
         self.projects = []
+        self.load_config()
 
         # Central widget and layout
         central_widget = QWidget()
@@ -171,10 +176,11 @@ class MainWindow(QMainWindow):
         self.add_project_btn.clicked.connect(self.open_add_project_dialog)
         self.remove_project_btn.clicked.connect(self.remove_selected_project)
 
+        self.refresh_project_list()
+
         # TODO: Add webhook management UI
         # TODO: Add background monitoring logic
         # TODO: Add log viewer
-        # TODO: Persist config to JSON
         # TODO: Implement message formatting logic
 
     def open_add_project_dialog(self):
@@ -182,6 +188,7 @@ class MainWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_data()
             self.projects.append(data)
+            self.save_config()
             self.refresh_project_list()
             QMessageBox.information(self, 'Project Added', f"Project '{data['name']}' added with {len(data['webhooks'])} webhook{'s' if len(data['webhooks']) != 1 else ''}.")
 
@@ -189,6 +196,7 @@ class MainWindow(QMainWindow):
         row = self.project_list.currentRow()
         if row >= 0:
             removed = self.projects.pop(row)
+            self.save_config()
             self.refresh_project_list()
             QMessageBox.information(self, 'Project Removed', f"Project '{removed['name']}' removed.")
         else:
@@ -199,6 +207,22 @@ class MainWindow(QMainWindow):
         for proj in self.projects:
             wh_count = len(proj.get('webhooks', []))
             self.project_list.addItem(f"{proj['name']} ({wh_count} webhook{'s' if wh_count != 1 else ''})")
+
+    def save_config(self):
+        try:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'projects': self.projects}, f, indent=2)
+        except Exception as e:
+            QMessageBox.critical(self, 'Save Error', f'Failed to save config: {e}')
+
+    def load_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.projects = data.get('projects', [])
+            except Exception as e:
+                QMessageBox.critical(self, 'Load Error', f'Failed to load config: {e}')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
