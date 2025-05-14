@@ -562,6 +562,7 @@ class TimeDayDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings = self.load_settings()  # Ensure settings is initialized first
         self.setWindowTitle('UE4 Git Reporter Desktop')
         self.setGeometry(100, 100, 800, 500)
         self.setWindowIcon(QIcon(self.style().standardIcon(QStyle.SP_ComputerIcon)))
@@ -638,6 +639,12 @@ class MainWindow(QMainWindow):
         settings_action = QAction('Settings', self)
         settings_action.triggered.connect(self.open_settings_dialog)
         options_menu.addAction(settings_action)
+        export_action = QAction('Export Data', self)
+        export_action.triggered.connect(self.export_data)
+        options_menu.addAction(export_action)
+        import_action = QAction('Import Data', self)
+        import_action.triggered.connect(self.import_data)
+        options_menu.addAction(import_action)
 
         # System tray integration (placeholder)
         self.tray_icon = QSystemTrayIcon(self)
@@ -661,7 +668,6 @@ class MainWindow(QMainWindow):
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
 
         self.monitor_thread = None
-        self.settings = self.load_settings()
         self.monitor_interval = self.settings.get('master_frequency', 1) * 60
         self.schedule_timer = threading.Thread(target=self.schedule_checker, daemon=True)
         self.schedule_timer_stop = threading.Event()
@@ -829,6 +835,41 @@ class MainWindow(QMainWindow):
         self.settings['master_frequency'] = value
         self.save_settings()
         self.monitor_interval = value * 60
+
+    def export_data(self):
+        path, _ = QFileDialog.getSaveFileName(self, 'Export Projects and Webhooks', '', 'JSON Files (*.json)')
+        if path:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump({'projects': self.projects}, f, indent=2)
+                QMessageBox.information(self, 'Export Data', 'Export successful!')
+            except Exception as e:
+                QMessageBox.critical(self, 'Export Data', f'Export failed: {e}')
+
+    def import_data(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Import Projects and Webhooks', '', 'JSON Files (*.json)')
+        if path:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                new_projects = data.get('projects', [])
+                if not new_projects:
+                    QMessageBox.warning(self, 'Import Data', 'No projects found in the selected file.')
+                    return
+                choice = QMessageBox.question(self, 'Import Data', 'Do you want to overwrite (Yes) or merge (No) with existing projects?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if choice == QMessageBox.Yes:
+                    self.projects = new_projects
+                else:
+                    # Merge: add new projects that don't already exist by name+path
+                    existing_keys = {(p['name'], p['path']) for p in self.projects}
+                    for p in new_projects:
+                        if (p['name'], p['path']) not in existing_keys:
+                            self.projects.append(p)
+                self.save_config()
+                self.refresh_project_list()
+                QMessageBox.information(self, 'Import Data', 'Import successful!')
+            except Exception as e:
+                QMessageBox.critical(self, 'Import Data', f'Import failed: {e}')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
