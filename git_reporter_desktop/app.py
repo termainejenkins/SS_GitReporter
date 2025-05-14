@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
-    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout
+    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
@@ -120,7 +120,8 @@ class MonitorWorker(QThread):
                         if now - last_sent < freq * 60:
                             self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' [{branch}] (frequency not elapsed)")
                             continue
-                        msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits)
+                        template = wh.get('template', '')
+                        msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, template)
                         self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}' [{branch}]...")
                         try:
                             client = DiscordClient(wh['webhook'])
@@ -142,7 +143,19 @@ class MonitorWorker(QThread):
     def stop(self):
         self.running = False
 
-    def format_message(self, fmt, project_name, status, commits):
+    @staticmethod
+    def format_message(fmt, project_name, status, commits, branch='', template=None):
+        # If a custom template is provided, use it
+        if template:
+            # For demonstration, use simple replacements
+            msg = template
+            msg = msg.replace('{project}', project_name)
+            msg = msg.replace('{branch}', branch)
+            msg = msg.replace('{commit_message}', commits or '')
+            msg = msg.replace('{files_changed}', status or '')
+            # Add more variables as needed
+            return msg
+        # Otherwise, use the built-in formats
         if fmt == 'Raw commit messages':
             return f"**{project_name}**\nRecent Commits:\n```\n{commits or 'No recent commits.'}\n```"
         elif fmt == 'Short interpretation':
@@ -162,7 +175,6 @@ class MonitorWorker(QThread):
                 msg.append("```")
             return '\n'.join(msg)
         elif fmt == 'Daily summary':
-            # For now, just show the last 5 commits and status
             msg = [f"**{project_name} Daily Summary**"]
             if commits:
                 msg.append("Commits today:\n```")
@@ -185,12 +197,26 @@ def get_git_branches(repo_path):
         return []
 
 class WebhookDialog(QDialog):
-    def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None):
+    def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None, branch=None):
         super().__init__(parent)
         self.setWindowTitle('Add/Edit Webhook')
         self.setModal(True)
-        layout = QFormLayout(self)
+        self.project_name = project_name or 'Project'
+        self.status = status or 'No status.'
+        self.commits = commits or 'No commits.'
+        self.branch = branch or ''
 
+        # Tabs for Basic/Advanced
+        tabs = QTabWidget(self)
+        basic_tab = QWidget()
+        advanced_tab = QWidget()
+        tabs.addTab(basic_tab, 'Basic')
+        tabs.addTab(advanced_tab, 'Advanced')
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(tabs)
+
+        # Basic tab layout
+        layout = QFormLayout(basic_tab)
         self.webhook_edit = QLineEdit()
         self.format_combo = QComboBox()
         self.format_combo.addItems(MESSAGE_FORMATS)
@@ -200,28 +226,30 @@ class WebhookDialog(QDialog):
         self.freq_spin.setSuffix(' min')
         self.test_btn = QPushButton('Test')
         self.preview_btn = QPushButton('Preview')
-
         layout.addRow('Discord Webhook:', self.webhook_edit)
         layout.addRow('Message Format:', self.format_combo)
         layout.addRow('Frequency (minutes):', self.freq_spin)
         layout.addRow(self.test_btn, self.preview_btn)
 
-        btn_layout = QHBoxLayout()
+        # Advanced tab layout
+        adv_layout = QVBoxLayout(advanced_tab)
+        adv_layout.addWidget(QLabel('Custom Message Template (optional):'))
+        self.template_edit = QTextEdit()
+        self.template_edit.setPlaceholderText('Use {commit_message}, {author}, {files_changed}, {branch}, {project}...')
+        adv_layout.addWidget(self.template_edit)
+        adv_layout.addWidget(QLabel('Leave blank to use the selected format.'))
+
         self.ok_btn = QPushButton('OK')
         self.cancel_btn = QPushButton('Cancel')
+        btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.ok_btn)
         btn_layout.addWidget(self.cancel_btn)
-        layout.addRow(btn_layout)
+        main_layout.addLayout(btn_layout)
 
         self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
         self.test_btn.clicked.connect(self.test_webhook)
         self.preview_btn.clicked.connect(self.preview_message)
-
-        # For preview/test
-        self.project_name = project_name or 'Project'
-        self.status = status or 'No status.'
-        self.commits = commits or 'No commits.'
 
         if webhook:
             self.webhook_edit.setText(webhook.get('webhook', ''))
@@ -229,18 +257,21 @@ class WebhookDialog(QDialog):
             if idx >= 0:
                 self.format_combo.setCurrentIndex(idx)
             self.freq_spin.setValue(int(webhook.get('frequency', 60)))
+            self.template_edit.setPlainText(webhook.get('template', ''))
 
     def get_data(self):
         return {
             'webhook': self.webhook_edit.text(),
             'format': self.format_combo.currentText(),
-            'frequency': self.freq_spin.value()
+            'frequency': self.freq_spin.value(),
+            'template': self.template_edit.toPlainText().strip()
         }
 
     def test_webhook(self):
         url = self.webhook_edit.text().strip()
         fmt = self.format_combo.currentText()
-        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits)
+        template = self.template_edit.toPlainText().strip()
+        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits, self.branch, template)
         if not url:
             QMessageBox.warning(self, 'Test Webhook', 'Please enter a webhook URL.')
             return
@@ -255,7 +286,8 @@ class WebhookDialog(QDialog):
 
     def preview_message(self):
         fmt = self.format_combo.currentText()
-        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits)
+        template = self.template_edit.toPlainText().strip()
+        msg = MonitorWorker.format_message(self, fmt, self.project_name, self.status, self.commits, self.branch, template)
         QMessageBox.information(self, 'Preview Message', msg)
 
 class ProjectDialog(QDialog):
