@@ -75,5 +75,11 @@
         }
       ]
     }
-  ]
+  ],
+  "settings": {
+    "start_with_windows": false,
+    "schedules": [],
+    "always_on_top": false,
+    "dark_mode": true
+  }
 }

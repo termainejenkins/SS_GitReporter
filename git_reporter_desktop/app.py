@@ -732,7 +732,12 @@ class MainWindow(QMainWindow):
         self.always_on_top_action.setChecked(self.settings.get('always_on_top', False))
         self.always_on_top_action.toggled.connect(self.set_always_on_top)
         options_menu.addAction(self.always_on_top_action)
+        self.dark_mode_action = QAction('Dark Mode', self, checkable=True)
+        self.dark_mode_action.setChecked(self.settings.get('dark_mode', False))
+        self.dark_mode_action.toggled.connect(self.set_dark_mode)
+        options_menu.addAction(self.dark_mode_action)
         self.set_always_on_top(self.always_on_top_action.isChecked())
+        self.set_dark_mode(self.dark_mode_action.isChecked())
 
         # System tray integration (placeholder)
         self.tray_icon = QSystemTrayIcon(self)
@@ -1031,6 +1036,26 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowFlags(flags & ~Qt.WindowStaysOnTopHint)
         self.show()
+
+    def set_dark_mode(self, checked):
+        self.settings['dark_mode'] = checked
+        self.save_settings()
+        if checked:
+            dark_stylesheet = """
+                QWidget { background-color: #232629; color: #f0f0f0; }
+                QLineEdit, QTextEdit, QComboBox, QSpinBox, QListWidget, QTabWidget::pane { background: #2b2b2b; color: #f0f0f0; }
+                QPushButton { background-color: #444; color: #f0f0f0; border: 1px solid #333; }
+                QPushButton:hover { background-color: #555; }
+                QMenuBar, QMenu { background: #232629; color: #f0f0f0; }
+                QMenu::item:selected { background: #444; }
+                QGroupBox { border: 1px solid #444; margin-top: 6px; }
+                QGroupBox:title { subcontrol-origin: margin; left: 7px; padding: 0 3px 0 3px; }
+                QCheckBox, QLabel { color: #f0f0f0; }
+                QStatusBar { background: #232629; color: #f0f0f0; }
+            """
+            self.setStyleSheet(dark_stylesheet)
+        else:
+            self.setStyleSheet("")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
