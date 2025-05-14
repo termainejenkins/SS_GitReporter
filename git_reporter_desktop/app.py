@@ -49,7 +49,7 @@ class MonitorWorker(QThread):
         super().__init__()
         self.projects = projects
         self.running = False
-        self.last_commit_hashes = {}  # Track last commit per project
+        self.last_commit_hashes = {}  # Track last commit per project/branch
         self.last_sent_times = {}     # Track last sent time per webhook
 
     def run(self):
@@ -60,45 +60,77 @@ class MonitorWorker(QThread):
             for project in self.projects:
                 name = project.get('name', 'Unknown')
                 path = project.get('path', '')
+                branches = project.get('branches', []) or ['']
+                filters = project.get('filters', {})
                 webhooks = project.get('webhooks', [])
                 if not os.path.exists(path):
                     self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
                     continue
-                try:
-                    monitor = GitMonitor(path, ignored_files=[])
-                except Exception as e:
-                    self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}': {e}")
-                    continue
-                # Get latest commit hash
-                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
-                if not latest_commit:
-                    self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}'")
-                    continue
-                last_hash = self.last_commit_hashes.get(path)
-                if last_hash == latest_commit:
-                    self.log_signal.emit(f"No new commits for '{name}'.")
-                    continue
-                self.last_commit_hashes[path] = latest_commit
-                # Get changes and format message
-                status, commits = monitor.get_changes()
-                for wh in webhooks:
-                    wh_id = f"{path}|{wh['webhook']}"
-                    freq = int(wh.get('frequency', 60))
-                    last_sent = self.last_sent_times.get(wh_id, 0)
-                    if now - last_sent < freq * 60:
-                        self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' (frequency not elapsed)")
-                        continue
-                    msg = self.format_message(wh['format'], name, status, commits)
-                    self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}'...")
+                for branch in branches:
                     try:
-                        client = DiscordClient(wh['webhook'])
-                        if client.send_message(msg):
-                            self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}'.")
-                            self.last_sent_times[wh_id] = now
-                        else:
-                            self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}'.")
+                        # Checkout branch
+                        if branch:
+                            subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
+                        monitor = GitMonitor(path, ignored_files=[])
                     except Exception as e:
-                        self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+                        self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                        continue
+                    # Get latest commit hash for this branch
+                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                    branch_key = f"{path}|{branch}"
+                    if not latest_commit:
+                        self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                        continue
+                    last_hash = self.last_commit_hashes.get(branch_key)
+                    if last_hash == latest_commit:
+                        self.log_signal.emit(f"No new commits for '{name}' [{branch}].")
+                        continue
+                    self.last_commit_hashes[branch_key] = latest_commit
+                    # Get changes and filter
+                    status, commits = monitor.get_changes()
+                    # Filter by change type
+                    send = False
+                    filtered_commits = ''
+                    filtered_status = ''
+                    if filters.get('commits', True) and commits:
+                        filtered_commits = commits
+                        send = True
+                    if filters.get('merges', False) and commits:
+                        if any('merge' in line.lower() for line in commits.split('\n')):
+                            filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
+                            send = True
+                    if filters.get('tags', False):
+                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
+                        if tags:
+                            filtered_commits += f"\nTags: {tags}"
+                            send = True
+                    if filters.get('filetypes', '') and status:
+                        types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
+                        filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
+                        if filtered_lines:
+                            filtered_status = '\n'.join(filtered_lines)
+                            send = True
+                    if not send:
+                        self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                        continue
+                    for wh in webhooks:
+                        wh_id = f"{path}|{branch}|{wh['webhook']}"
+                        freq = int(wh.get('frequency', 60))
+                        last_sent = self.last_sent_times.get(wh_id, 0)
+                        if now - last_sent < freq * 60:
+                            self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' [{branch}] (frequency not elapsed)")
+                            continue
+                        msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits)
+                        self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}' [{branch}]...")
+                        try:
+                            client = DiscordClient(wh['webhook'])
+                            if client.send_message(msg):
+                                self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                                self.last_sent_times[wh_id] = now
+                            else:
+                                self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                        except Exception as e:
+                            self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
             self.status_signal.emit('Monitoring cycle complete.')
             for _ in range(MONITOR_INTERVAL_SECONDS):
                 if not self.running:

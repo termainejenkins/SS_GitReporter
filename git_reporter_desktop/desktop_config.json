@@ -27,6 +27,32 @@
           "format": "Daily summary"
         }
       ]
+    },
+    {
+      "name": "THE GREAT CIRCLE web",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/TheGreatCircleWeb",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/1372119684689956955/vWxdzRyWam6TMMin7Herse2j66kxBF_RGN-a_nEJhjDquhP5d_c3ZIz7oJp4k2iw2E3E",
+          "format": "Raw commit messages",
+          "frequency": 6
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/1372122397771173940/BHiAtQibLHzit-6aWjGH-H1HDSYgaViLxOFKINd6YdDvSRINxG5kfMVdTMWXKirOCSak",
+          "format": "Short interpretation",
+          "frequency": 5
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/1372122635294605372/1vYvxZ5QxlKYI4ssUmObLCQZcjAZTqudYnC5aZeSB9NcMmwO0HOiiU9O8XJw9aGV1uxT",
+          "format": "Raw commit messages",
+          "frequency": 60
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/1372122895358230640/3Pc-1lBkrYpfN3wLoJEioC3NXRkR_IRssqduAHqGdbLEjYFxkzc732-Y5O-JZ0_mTq_S",
+          "format": "Daily summary",
+          "frequency": 5
+        }
+      ]
     }
   ]
 }
