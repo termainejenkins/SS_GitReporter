@@ -33,7 +33,8 @@ MESSAGE_FORMATS = [
     'Raw commit messages',
     'Short interpretation',
     'Changelog style',
-    'Daily summary'
+    'Daily summary',
+    'AI Summary'
 ]
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'desktop_config.json')
@@ -122,7 +123,7 @@ class MonitorWorker(QThread):
                             self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' [{branch}] (frequency not elapsed)")
                             continue
                         template = wh.get('template', '')
-                        msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, template)
+                        msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, template, path)
                         self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}' [{branch}]...")
                         try:
                             client = DiscordClient(wh['webhook'])
@@ -145,7 +146,37 @@ class MonitorWorker(QThread):
         self.running = False
 
     @staticmethod
-    def format_message(fmt, project_name, status, commits, branch='', template=None):
+    def format_message(fmt, project_name, status, commits, branch='', template=None, repo_path=None):
+        if fmt == 'AI Summary':
+            # Generate a local summary from git status and diff
+            import subprocess, os
+            summary = ''
+            if repo_path and os.path.isdir(os.path.join(repo_path, '.git')):
+                try:
+                    status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
+                    diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True).stdout
+                    added, modified, deleted = 0, 0, 0
+                    files = []
+                    for line in status_out.splitlines():
+                        if line.startswith('A '):
+                            added += 1
+                            files.append(line[2:].strip())
+                        elif line.startswith('M '):
+                            modified += 1
+                            files.append(line[2:].strip())
+                        elif line.startswith('D '):
+                            deleted += 1
+                            files.append(line[2:].strip())
+                    summary = f"Added {added} file(s), modified {modified} file(s), deleted {deleted} file(s). "
+                    if files:
+                        summary += "Main changes: " + ', '.join(files[:5]) + (', ...' if len(files) > 5 else '')
+                    if diffstat.strip():
+                        summary += f"\nDiffstat: {diffstat.strip()}"
+                except Exception as e:
+                    summary = f"[Summary generation failed: {e}]"
+            else:
+                summary = '[Summary generation failed: not a git repo]'
+            return summary
         # If a custom template is provided, use it
         if template:
             # For demonstration, use simple replacements
