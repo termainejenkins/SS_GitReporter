@@ -45,12 +45,13 @@ class MonitorWorker(QThread):
     log_signal = pyqtSignal(str)
     status_signal = pyqtSignal(str)
 
-    def __init__(self, projects):
+    def __init__(self, projects, monitor_interval=60):
         super().__init__()
         self.projects = projects
         self.running = False
         self.last_commit_hashes = {}  # Track last commit per project/branch
         self.last_sent_times = {}     # Track last sent time per webhook
+        self.monitor_interval = monitor_interval
 
     def run(self):
         self.running = True
@@ -133,7 +134,7 @@ class MonitorWorker(QThread):
                         except Exception as e:
                             self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
             self.status_signal.emit('Monitoring cycle complete.')
-            for _ in range(MONITOR_INTERVAL_SECONDS):
+            for _ in range(self.monitor_interval):
                 if not self.running:
                     break
                 time.sleep(1)
@@ -471,6 +472,17 @@ class SettingsDialog(QDialog):
         self.start_with_windows_cb = QCheckBox('Start with Windows')
         layout.addWidget(self.start_with_windows_cb)
 
+        # Master monitoring frequency
+        freq_layout = QHBoxLayout()
+        freq_label = QLabel('Master Monitoring Frequency (minutes):')
+        self.master_freq_spin = QSpinBox()
+        self.master_freq_spin.setRange(1, 120)
+        self.master_freq_spin.setValue(1)
+        self.master_freq_spin.setSuffix(' min')
+        freq_layout.addWidget(freq_label)
+        freq_layout.addWidget(self.master_freq_spin)
+        layout.addLayout(freq_layout)
+
         # Scheduled times
         layout.addWidget(QLabel('Auto-Start Monitoring Schedule'))
         self.schedule_list = QListWidget()
@@ -495,6 +507,7 @@ class SettingsDialog(QDialog):
         if settings:
             self.start_with_windows_cb.setChecked(settings.get('start_with_windows', False))
             self.schedules = settings.get('schedules', [])
+            self.master_freq_spin.setValue(settings.get('master_frequency', 1))
             self.refresh_schedule_list()
 
     def add_time(self):
@@ -519,7 +532,8 @@ class SettingsDialog(QDialog):
     def get_settings(self):
         return {
             'start_with_windows': self.start_with_windows_cb.isChecked(),
-            'schedules': self.schedules
+            'schedules': self.schedules,
+            'master_frequency': self.master_freq_spin.value()
         }
 
 class TimeDayDialog(QDialog):
@@ -630,6 +644,7 @@ class MainWindow(QMainWindow):
 
         self.monitor_thread = None
         self.settings = self.load_settings()
+        self.monitor_interval = self.settings.get('master_frequency', 1) * 60
         self.schedule_timer = threading.Thread(target=self.schedule_checker, daemon=True)
         self.schedule_timer_stop = threading.Event()
         self.schedule_timer.start()
@@ -709,7 +724,7 @@ class MainWindow(QMainWindow):
         if self.monitor_thread and self.monitor_thread.isRunning():
             QMessageBox.warning(self, 'Monitoring', 'Monitoring is already running.')
             return
-        self.monitor_thread = MonitorWorker(self.projects)
+        self.monitor_thread = MonitorWorker(self.projects, monitor_interval=self.monitor_interval)
         self.monitor_thread.log_signal.connect(self.append_log)
         self.monitor_thread.status_signal.connect(self.status_bar.showMessage)
         self.monitor_thread.start()
@@ -733,6 +748,7 @@ class MainWindow(QMainWindow):
             self.settings = dialog.get_settings()
             self.save_settings()
             self.apply_startup_setting()
+            self.monitor_interval = self.settings.get('master_frequency', 1) * 60
 
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
