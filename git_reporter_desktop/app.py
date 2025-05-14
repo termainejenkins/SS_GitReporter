@@ -581,6 +581,18 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(QLabel('Projects'))
         main_layout.addWidget(self.project_list)
 
+        # Master frequency control on the main window
+        freq_layout = QHBoxLayout()
+        freq_label = QLabel('Master Monitoring Frequency (minutes):')
+        self.master_freq_spin = QSpinBox()
+        self.master_freq_spin.setRange(1, 120)
+        self.master_freq_spin.setValue(self.settings.get('master_frequency', 1))
+        self.master_freq_spin.setSuffix(' min')
+        freq_layout.addWidget(freq_label)
+        freq_layout.addWidget(self.master_freq_spin)
+        main_layout.addLayout(freq_layout)
+        self.master_freq_spin.valueChanged.connect(self.update_master_frequency)
+
         btn_layout = QHBoxLayout()
         self.add_project_btn = QPushButton('Add Project')
         self.edit_project_btn = QPushButton('Edit Project')
@@ -812,6 +824,11 @@ class MainWindow(QMainWindow):
             self.monitor_thread.stop()
             self.monitor_thread.wait()
         event.accept()
+
+    def update_master_frequency(self, value):
+        self.settings['master_frequency'] = value
+        self.save_settings()
+        self.monitor_interval = value * 60
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
