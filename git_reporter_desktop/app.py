@@ -38,15 +38,17 @@ MESSAGE_FORMATS = [
     'AI Summary'
 ]
 
-def resource_path(relative_path):
-    # Get absolute path to resource, works for dev and for PyInstaller
-    if hasattr(sys, '_MEIPASS'):
-        base_path = sys._MEIPASS
+def get_config_path():
+    # Use AppData/GitReporter/desktop_config.json for all users
+    if sys.platform == 'win32':
+        base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
     else:
-        base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
-    return os.path.join(base_path, relative_path)
+        base_dir = os.path.expanduser('~')
+    config_dir = os.path.join(base_dir, 'GitReporter')
+    os.makedirs(config_dir, exist_ok=True)
+    return os.path.join(config_dir, 'desktop_config.json')
 
-CONFIG_FILE = resource_path('desktop_config.json')
+CONFIG_FILE = get_config_path()
 
 # Unified load/save for both projects and settings
 def load_all():
@@ -61,7 +63,6 @@ def load_all():
 
 def save_all(projects, settings):
     try:
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump({'projects': projects, 'settings': settings}, f, indent=2)
     except Exception as e:
