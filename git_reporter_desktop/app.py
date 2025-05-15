@@ -47,7 +47,25 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 CONFIG_FILE = resource_path('desktop_config.json')
-SETTINGS_FILE = CONFIG_FILE  # Use the same config file for simplicity
+
+# Unified load/save for both projects and settings
+def load_all():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('projects', []), data.get('settings', {})
+        except Exception:
+            pass
+    return [], {}
+
+def save_all(projects, settings):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'projects': projects, 'settings': settings}, f, indent=2)
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
 
@@ -729,14 +747,10 @@ class TimeDayDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.settings = self.load_settings()  # Ensure settings is initialized first
+        self.projects, self.settings = load_all()
         self.setWindowTitle('UE4 Git Reporter Desktop')
         self.setGeometry(100, 100, 800, 500)
         self.setWindowIcon(QIcon(self.style().standardIcon(QStyle.SP_ComputerIcon)))
-
-        # In-memory project storage (persisted to config file)
-        self.projects = []
-        self.load_config()
 
         # Central widget and layout
         central_widget = QWidget()
@@ -884,7 +898,7 @@ class MainWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_data()
             self.projects.append(data)
-            self.save_config()
+            self.save_all()
             self.refresh_project_list()
             self.append_log(f"Project '{data['name']}' added with {len(data['webhooks'])} webhook(s).")
             self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
@@ -900,7 +914,7 @@ class MainWindow(QMainWindow):
             dialog = ProjectDialog(self, project=project)
             if dialog.exec_() == QDialog.Accepted:
                 self.projects[row] = dialog.get_data()
-                self.save_config()
+                self.save_all()
                 self.refresh_project_list()
                 self.append_log(f"Project '{project['name']}' updated.")
                 self.status_bar.showMessage(f"Project '{project['name']}' updated.", 3000)
@@ -911,7 +925,7 @@ class MainWindow(QMainWindow):
         row = self.project_list.currentRow()
         if row >= 0:
             removed = self.projects.pop(row)
-            self.save_config()
+            self.save_all()
             self.refresh_project_list()
             self.append_log(f"Project '{removed['name']}' removed.")
             self.status_bar.showMessage(f"Project '{removed['name']}' removed.", 3000)
@@ -941,24 +955,8 @@ class MainWindow(QMainWindow):
                 item.setToolTip(tooltip)
             self.project_list.addItem(item)
 
-    def save_config(self):
-        try:
-            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump({'projects': self.projects}, f, indent=2)
-        except Exception as e:
-            QMessageBox.critical(self, 'Save Error', f'Failed to save config: {e}')
-            self.append_log(f"Error saving config: {e}")
-
-    def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.projects = data.get('projects', [])
-            except Exception as e:
-                QMessageBox.critical(self, 'Load Error', f'Failed to load config: {e}')
-                self.append_log(f"Error loading config: {e}")
+    def save_all(self):
+        save_all(self.projects, self.settings)
 
     def append_log(self, message):
         self.log_viewer.append(message)
@@ -992,30 +990,9 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self, settings=self.settings)
         if dialog.exec_() == QDialog.Accepted:
             self.settings = dialog.get_settings()
-            self.save_settings()
+            self.save_all()
             self.apply_startup_setting()
             self.monitor_interval = self.settings.get('master_frequency', 1) * 60
-
-    def load_settings(self):
-        if os.path.exists(SETTINGS_FILE):
-            try:
-                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data.get('settings', {'start_with_windows': False, 'schedules': []})
-            except Exception:
-                return {'start_with_windows': False, 'schedules': []}
-        return {'start_with_windows': False, 'schedules': []}
-
-    def save_settings(self):
-        try:
-            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-        data['settings'] = self.settings
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
 
     def apply_startup_setting(self):
         if platform.system() == 'Windows':
@@ -1056,7 +1033,7 @@ class MainWindow(QMainWindow):
 
     def update_master_frequency(self, value):
         self.settings['master_frequency'] = value
-        self.save_settings()
+        self.save_all()
         self.monitor_interval = value * 60
 
     def export_data(self):
@@ -1088,7 +1065,7 @@ class MainWindow(QMainWindow):
                     for p in new_projects:
                         if (p['name'], p['path']) not in existing_keys:
                             self.projects.append(p)
-                self.save_config()
+                self.save_all()
                 self.refresh_project_list()
                 QMessageBox.information(self, 'Import Data', 'Import successful!')
             except Exception as e:
@@ -1159,7 +1136,7 @@ class MainWindow(QMainWindow):
 
     def set_always_on_top(self, checked):
         self.settings['always_on_top'] = checked
-        self.save_settings()
+        self.save_all()
         flags = self.windowFlags()
         if checked:
             self.setWindowFlags(flags | Qt.WindowStaysOnTopHint)
@@ -1169,7 +1146,7 @@ class MainWindow(QMainWindow):
 
     def set_dark_mode(self, checked):
         self.settings['dark_mode'] = checked
-        self.save_settings()
+        self.save_all()
         if checked:
             dark_stylesheet = """
                 QWidget { background-color: #232629; color: #f0f0f0; }
