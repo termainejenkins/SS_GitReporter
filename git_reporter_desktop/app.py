@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+import logging
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
@@ -39,7 +40,6 @@ MESSAGE_FORMATS = [
 ]
 
 def get_config_path():
-    # Use AppData/GitReporter/desktop_config.json for all users
     if sys.platform == 'win32':
         base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
     else:
@@ -49,26 +49,61 @@ def get_config_path():
     return os.path.join(config_dir, 'desktop_config.json')
 
 CONFIG_FILE = get_config_path()
+LOG_FILE = os.path.join(os.path.dirname(CONFIG_FILE), 'app.log')
+
+# Set up file logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[logging.FileHandler(LOG_FILE, encoding='utf-8'), logging.StreamHandler()]
+)
+logging.info(f"App started. Config file: {CONFIG_FILE}")
+
+# At startup, log PATH and check for git
+logging.info(f"PATH: {os.environ.get('PATH')}")
+git_path = shutil.which('git')
+if git_path:
+    logging.info(f"git found at: {git_path}")
+else:
+    logging.error("git not found on PATH! Git operations will fail.")
 
 # Unified load/save for both projects and settings
 def load_all():
+    logging.info(f"Loading config from {CONFIG_FILE}")
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                logging.info("Config loaded successfully.")
                 return data.get('projects', []), data.get('settings', {})
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Error loading config: {e}")
+    else:
+        logging.warning(f"Config file does not exist: {CONFIG_FILE}")
     return [], {}
 
 def save_all(projects, settings):
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump({'projects': projects, 'settings': settings}, f, indent=2)
+        logging.info(f"Config saved to {CONFIG_FILE}")
     except Exception as e:
-        print(f"Error saving config: {e}")
+        logging.error(f"Error saving config: {e}")
 
 MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
+
+def run_git_command(args, cwd):
+    try:
+        logging.info(f"Running git command: {' '.join(args)} in {cwd}")
+        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True)
+        logging.info(f"Git command output: {result.stdout.strip()}")
+        return result.stdout.strip()
+    except FileNotFoundError as e:
+        logging.error(f"Git not found: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Git command failed: {e}")
+        return None
 
 class MonitorWorker(QThread):
     log_signal = pyqtSignal(str)
@@ -85,6 +120,7 @@ class MonitorWorker(QThread):
     def run(self):
         self.running = True
         self.log_signal.emit('Background monitoring started.')
+        logging.info('Background monitoring started.')
         while self.running:
             now = time.time()
             for project in self.projects:
@@ -94,31 +130,35 @@ class MonitorWorker(QThread):
                 filters = project.get('filters', {})
                 webhooks = project.get('webhooks', [])
                 if not os.path.exists(path):
-                    self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                    msg = f"[ERROR] Project path does not exist: {path}"
+                    self.log_signal.emit(msg)
+                    logging.error(msg)
                     continue
                 for branch in branches:
                     try:
-                        # Checkout branch
                         if branch:
-                            subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
+                            run_git_command(['git', 'checkout', branch], cwd=path)
                         monitor = GitMonitor(path, ignored_files=[])
                     except Exception as e:
-                        self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                        msg = f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}"
+                        self.log_signal.emit(msg)
+                        logging.error(msg)
                         continue
-                    # Get latest commit hash for this branch
-                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                    latest_commit = run_git_command(['git', 'rev-parse', 'HEAD'], cwd=path)
                     branch_key = f"{path}|{branch}"
                     if not latest_commit:
-                        self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                        msg = f"[ERROR] Could not get latest commit for '{name}' [{branch}]"
+                        self.log_signal.emit(msg)
+                        logging.error(msg)
                         continue
                     last_hash = self.last_commit_hashes.get(branch_key)
                     if last_hash == latest_commit:
-                        self.log_signal.emit(f"No new commits for '{name}' [{branch}].")
+                        msg = f"No new commits for '{name}' [{branch}]."
+                        self.log_signal.emit(msg)
+                        logging.info(msg)
                         continue
                     self.last_commit_hashes[branch_key] = latest_commit
-                    # Get changes and filter
                     status, commits = monitor.get_changes()
-                    # Filter by change type
                     send = False
                     filtered_commits = ''
                     filtered_status = ''
@@ -130,7 +170,7 @@ class MonitorWorker(QThread):
                             filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
                             send = True
                     if filters.get('tags', False):
-                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
+                        tags = run_git_command(['git', 'tag', '--contains', latest_commit], cwd=path)
                         if tags:
                             filtered_commits += f"\nTags: {tags}"
                             send = True
@@ -141,34 +181,54 @@ class MonitorWorker(QThread):
                             filtered_status = '\n'.join(filtered_lines)
                             send = True
                     if not send:
-                        self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                        msg = f"No matching changes for '{name}' [{branch}]."
+                        self.log_signal.emit(msg)
+                        logging.info(msg)
                         continue
                     for wh in webhooks:
                         wh_id = f"{path}|{branch}|{wh['webhook']}"
                         freq = int(wh.get('frequency', 60))
                         last_sent = self.last_sent_times.get(wh_id, 0)
                         if now - last_sent < freq * 60:
-                            self.log_signal.emit(f"Skipping webhook {wh['webhook']} for '{name}' [{branch}] (frequency not elapsed)")
+                            msg = f"Skipping webhook {wh['webhook']} for '{name}' [{branch}] (frequency not elapsed)"
+                            self.log_signal.emit(msg)
+                            logging.info(msg)
                             continue
                         template = wh.get('template', '')
                         msg = self.format_message(wh['format'], f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, template, path)
-                        self.log_signal.emit(f"Sending {wh['format']} report to {wh['webhook']} for '{name}' [{branch}]...")
+                        logmsg = f"Sending {wh['format']} report to {wh['webhook']} for '{name}' [{branch}]..."
+                        self.log_signal.emit(logmsg)
+                        logging.info(logmsg)
                         try:
                             client = DiscordClient(wh['webhook'])
-                            if client.send_message(msg):
-                                self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                            ok = False
+                            try:
+                                ok = client.send_message(msg)
+                            except Exception as e:
+                                logging.error(f"DiscordClient.send_message error: {e}")
+                            if ok:
+                                okmsg = f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}]."
+                                self.log_signal.emit(okmsg)
+                                logging.info(okmsg)
                                 self.last_sent_times[wh_id] = now
                             else:
-                                self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                                errmsg = f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}]."
+                                self.log_signal.emit(errmsg)
+                                logging.error(errmsg)
                         except Exception as e:
-                            self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+                            errmsg = f"[ERROR] Exception sending to Discord: {e}"
+                            self.log_signal.emit(errmsg)
+                            logging.error(errmsg)
             self.status_signal.emit('Monitoring cycle complete.')
+            logging.info('Monitoring cycle complete.')
             for _ in range(self.monitor_interval):
                 if not self.running:
                     break
                 time.sleep(1)
         self.log_signal.emit('Background monitoring stopped.')
         self.status_signal.emit('Monitoring stopped.')
+        logging.info('Background monitoring stopped.')
+        logging.info('Monitoring stopped.')
 
     def stop(self):
         self.running = False
@@ -961,6 +1021,7 @@ class MainWindow(QMainWindow):
 
     def append_log(self, message):
         self.log_viewer.append(message)
+        logging.info(message)
 
     def toggle_log_viewer(self, checked):
         self.log_viewer.setVisible(checked)
