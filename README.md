@@ -17,12 +17,32 @@ A modern desktop application for managing and monitoring multiple Unreal Engine 
 - **Log viewer:** See activity and errors in the app
 - **Customizable filters:** Manage ignore patterns per project
 - **Theme support:** Light/dark mode
+- **Export/Import:** Easily back up or transfer your project/webhook configuration
+- **Advanced summaries:** Choose between local smart summaries and LLM-powered summaries (see below)
+
+### LLM Integration (Local & Cloud)
+- **Local LLM (Recommended):**
+  - Integrate with [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/) to run open-source LLMs (like Mistral, Llama 2, Phi) on your own machine.
+  - No API key or internet required after model download.
+  - The app can start/stop the LLM server for you, or detect if it's already running.
+  - Select "LLM Summary (Local)" in the format dropdown to generate natural-language summaries of your git changes.
+  - **Privacy:** No data leaves your machine.
+- **Cloud LLM (Optional/Future):**
+  - Optionally, connect to OpenAI, Gemini, or other cloud LLMs with your own API key.
+  - Useful for even more advanced summaries if desired.
+- **Fallback:** If no LLM is available, the app uses its built-in smart local summary.
+
+### Privacy & User Control
+- **Local-first:** All monitoring and summaries are local by default.
+- **User control:** You decide if/when to use LLMs, and whether the app should start/stop the LLM server automatically.
+- **No cloud dependency** unless you explicitly enable it.
 
 ### Roadmap
 1. PyQt5 main window with project/webhook management
 2. System tray and background monitoring
 3. Integration of git monitoring and Discord reporting
 4. Enhanced UI/UX and extra features
+5. **LLM-powered summaries (local and cloud)**
 
 ---
 
