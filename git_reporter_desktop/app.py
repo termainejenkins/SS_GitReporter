@@ -619,6 +619,14 @@ class SettingsDialog(QDialog):
         self.start_with_windows_cb = QCheckBox('Start with Windows')
         layout.addWidget(self.start_with_windows_cb)
 
+        # Auto Start Monitoring
+        self.auto_start_monitoring_cb = QCheckBox('Auto Start Monitoring')
+        layout.addWidget(self.auto_start_monitoring_cb)
+
+        # Start With Log Open
+        self.start_with_log_open_cb = QCheckBox('Start With Log Open')
+        layout.addWidget(self.start_with_log_open_cb)
+
         # Master monitoring frequency
         freq_layout = QHBoxLayout()
         freq_label = QLabel('Master Monitoring Frequency (minutes):')
@@ -655,6 +663,8 @@ class SettingsDialog(QDialog):
             self.start_with_windows_cb.setChecked(settings.get('start_with_windows', False))
             self.schedules = settings.get('schedules', [])
             self.master_freq_spin.setValue(settings.get('master_frequency', 1))
+            self.auto_start_monitoring_cb.setChecked(settings.get('auto_start_monitoring', True))
+            self.start_with_log_open_cb.setChecked(settings.get('start_with_log_open', False))
             self.refresh_schedule_list()
 
     def add_time(self):
@@ -680,6 +690,8 @@ class SettingsDialog(QDialog):
         return {
             'start_with_windows': self.start_with_windows_cb.isChecked(),
             'schedules': self.schedules,
+            'master_frequency': self.master_freq_spin.value(),
+            'auto_start_monitoring': self.auto_start_monitoring_cb.isChecked(),
             'master_frequency': self.master_freq_spin.value()
         }
 
@@ -842,6 +854,13 @@ class MainWindow(QMainWindow):
         self.schedule_timer.start()
 
         self.refresh_project_list()
+
+        # Show log viewer if requested
+        if self.settings.get('start_with_log_open', False):
+            self.log_viewer.show()
+        # Auto start monitoring if requested
+        if self.settings.get('auto_start_monitoring', True):
+            self.start_monitoring()
 
     def open_add_project_dialog(self):
         dialog = ProjectDialog(self)
