@@ -53,6 +53,17 @@ A modern desktop application for managing and monitoring multiple Unreal Engine 
 - Filtered reporting (ignores binary files, temporary directories)
 - Real-time change notifications
 
+## Configuration & Data Safety
+
+- **Config file location:**
+  - **Desktop app:** `%APPDATA%/GitReporter/desktop_config.json` (Windows) or `~/.config/GitReporter/desktop_config.json` (Linux/macOS)
+  - **CLI app:** `config.json` in the working directory
+- **Atomic saves:** Config files are written atomically to prevent corruption (write to a temp file, then replace the original).
+- **Automatic backup:** Before saving, the previous config is backed up as `*.bak`.
+- **Versioning:** Config files include a `version` field for future migration support.
+- **Validation:** Config is validated on load; if invalid, the app will attempt to repair or restore from backup.
+- **Recovery:** If the config file is corrupted, the app will prompt to restore from backup or use defaults.
+
 ## Credits
 Created by **Termaine Jenkins** (TJ)  
 SENTIENT SOLUTIONS LLC

@@ -24,6 +24,12 @@
      - Human-readable format
      - Easy to modify without code changes
      - No security concerns for local deployment
+   - **Best Practices Implemented:**
+     - Atomic saves: Config is written to a temp file and atomically replaced to prevent corruption.
+     - Automatic backup: Previous config is backed up before each save.
+     - Versioning: Config includes a version field for future migration.
+     - Validation: Config is validated on load and repaired or restored from backup if needed.
+     - Recovery: If config is corrupted, the app will attempt to restore from backup or use defaults.
 
 3. **Monitoring Strategy**
    - Decision: Polling-based monitoring

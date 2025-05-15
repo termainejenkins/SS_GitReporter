@@ -36,6 +36,7 @@
 - Better commit message formatting
 - Additional configuration options
 - Improved logging system
+- **Config improvements:** Atomic saves, automatic backup, versioning, and validation for all config files. Recovery from backup if corruption is detected.
 
 ### Version 1.2.0
 - Multi-branch support
