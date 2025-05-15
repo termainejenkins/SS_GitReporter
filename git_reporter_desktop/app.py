@@ -395,79 +395,85 @@ class CheckAllNowWorker(QThread):
         self.projects = projects
         self.fmt = fmt
     def run(self):
-        import time
-        now = time.time()
-        total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
-        count = 0
-        for project in self.projects:
-            name = project.get('name', 'Unknown')
-            path = project.get('path', '')
-            branches = project.get('branches', []) or ['']
-            filters = project.get('filters', {})
-            webhooks = project.get('webhooks', [])
-            if not os.path.exists(path):
-                self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
-                count += len(branches)
-                self.progress_signal.emit(count)
-                continue
-            for branch in branches:
-                try:
-                    if branch:
-                        subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
-                    monitor = GitMonitor(path, ignored_files=[])
-                except Exception as e:
-                    self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
-                    count += 1
+        try:
+            import time
+            now = time.time()
+            total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
+            count = 0
+            for project in self.projects:
+                name = project.get('name', 'Unknown')
+                path = project.get('path', '')
+                branches = project.get('branches', []) or ['']
+                filters = project.get('filters', {})
+                webhooks = project.get('webhooks', [])
+                if not os.path.exists(path):
+                    self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                    count += len(branches)
                     self.progress_signal.emit(count)
                     continue
-                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
-                if not latest_commit:
-                    self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
-                    count += 1
-                    self.progress_signal.emit(count)
-                    continue
-                status, commits = monitor.get_changes()
-                # Apply filters as in MonitorWorker
-                send = False
-                filtered_commits = ''
-                filtered_status = ''
-                if filters.get('commits', True) and commits:
-                    filtered_commits = commits
-                    send = True
-                if filters.get('merges', False) and commits:
-                    if any('merge' in line.lower() for line in commits.split('\n')):
-                        filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
-                        send = True
-                if filters.get('tags', False):
-                    tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
-                    if tags:
-                        filtered_commits += f"\nTags: {tags}"
-                        send = True
-                if filters.get('filetypes', '') and status:
-                    types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
-                    filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
-                    if filtered_lines:
-                        filtered_status = '\n'.join(filtered_lines)
-                        send = True
-                if not send:
-                    self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
-                    count += 1
-                    self.progress_signal.emit(count)
-                    continue
-                for wh in webhooks:
-                    msg = MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
-                    self.log_signal.emit(f"[Check Now] Sending {self.fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
+                for branch in branches:
                     try:
-                        client = DiscordClient(wh['webhook'])
-                        if client.send_message(msg):
-                            self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
-                        else:
-                            self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                        if branch:
+                            subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
+                        monitor = GitMonitor(path, ignored_files=[])
                     except Exception as e:
-                        self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
-                count += 1
-                self.progress_signal.emit(count)
-        self.done_signal.emit()
+                        self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                        count += 1
+                        self.progress_signal.emit(count)
+                        continue
+                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                    if not latest_commit:
+                        self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                        count += 1
+                        self.progress_signal.emit(count)
+                        continue
+                    status, commits = monitor.get_changes()
+                    # Apply filters as in MonitorWorker
+                    send = False
+                    filtered_commits = ''
+                    filtered_status = ''
+                    if filters.get('commits', True) and commits:
+                        filtered_commits = commits
+                        send = True
+                    if filters.get('merges', False) and commits:
+                        if any('merge' in line.lower() for line in commits.split('\n')):
+                            filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
+                            send = True
+                    if filters.get('tags', False):
+                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
+                        if tags:
+                            filtered_commits += f"\nTags: {tags}"
+                            send = True
+                    if filters.get('filetypes', '') and status:
+                        types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
+                        filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
+                        if filtered_lines:
+                            filtered_status = '\n'.join(filtered_lines)
+                            send = True
+                    if not send:
+                        self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                        count += 1
+                        self.progress_signal.emit(count)
+                        continue
+                    for wh in webhooks:
+                        msg = MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
+                        self.log_signal.emit(f"[Check Now] Sending {self.fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
+                        try:
+                            client = DiscordClient(wh['webhook'])
+                            if client.send_message(msg):
+                                self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                            else:
+                                self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                        except Exception as e:
+                            self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+                    count += 1
+                    self.progress_signal.emit(count)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self.log_signal.emit(f"[FATAL ERROR] Exception in CheckAllNowWorker: {e}\n{tb}")
+        finally:
+            self.done_signal.emit()
 
 class WebhookDialog(QDialog):
     def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None, branch=None):
@@ -1372,13 +1378,6 @@ class MainWindow(QMainWindow):
         self.check_now_btn.setText('Checking...')
         fmt = self.check_format_combo.currentText()
         total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
-        self.progress_dialog = QProgressDialog('Sending reports to all webhooks...', 'Cancel', 0, total, self)
-        self.progress_dialog.setWindowTitle('Check All Now')
-        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-        self.progress_dialog.setValue(0)
-        self.progress_dialog.setMinimumDuration(0)
-        self.progress_dialog.setAutoClose(True)
-        self.progress_dialog.setAutoReset(True)
         self.worker = CheckAllNowWorker(self.projects, fmt)
         def on_log(msg):
             self.append_log(msg)
@@ -1386,10 +1385,8 @@ class MainWindow(QMainWindow):
             self.check_now_btn.setEnabled(True)
             self.check_now_btn.setText('Check All Now')
             self.append_log('Check All Now complete.')
-            self.progress_dialog.close()
         self.worker.log_signal.connect(on_log)
         self.worker.done_signal.connect(on_done)
-        self.worker.progress_signal.connect(self.progress_dialog.setValue)
         self.worker.start()
 
     def test_all_status(self):
