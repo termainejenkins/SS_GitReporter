@@ -1029,6 +1029,7 @@ class MainWindow(QMainWindow):
         if self.monitor_thread and self.monitor_thread.isRunning():
             self.monitor_thread.stop()
             self.monitor_thread.wait()
+        self.save_all()  # Ensure all data is saved before exit
         event.accept()
 
     def update_master_frequency(self, value):
