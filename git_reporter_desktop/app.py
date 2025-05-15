@@ -1065,7 +1065,7 @@ class MainWindow(QMainWindow):
         check_layout.addWidget(self.check_format_combo)
         check_layout.addWidget(self.check_now_btn)
         main_layout.addLayout(check_layout)
-        self.check_now_btn.clicked.connect(self.threaded_check_all_now)
+        self.check_now_btn.clicked.connect(self.check_all_now)
 
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
@@ -1135,7 +1135,7 @@ class MainWindow(QMainWindow):
         self.start_monitor_btn.clicked.connect(self.start_monitoring)
         self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
-        self.test_all_btn.clicked.connect(self.test_all_status)
+        self.test_all_btn.clicked.connect(self.check_all_now)
 
         self.monitor_thread = None
         self.monitor_interval = self.settings.get('master_frequency', 1) * 60
@@ -1351,7 +1351,7 @@ class MainWindow(QMainWindow):
             self.worker.result_signal.connect(on_result)
             self.worker.start()
 
-    def test_all_status(self):
+    def check_all_now(self):
         self.test_all_btn.setEnabled(False)
         self.test_all_btn.setText('Testing...')
         self.progress_dialog = QProgressDialog('Testing all projects...', 'Cancel', 0, len(self.projects), self)
