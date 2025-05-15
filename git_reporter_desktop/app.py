@@ -911,6 +911,7 @@ class TimeDayDialog(QDialog):
 class TestAllStatusWorker(QThread):
     status_signal = pyqtSignal(dict)
     done_signal = pyqtSignal()
+    progress_signal = pyqtSignal(int)
     def __init__(self, projects):
         super().__init__()
         self.projects = projects
@@ -922,12 +923,10 @@ class TestAllStatusWorker(QThread):
             path = project.get('path', '')
             webhooks = project.get('webhooks', [])
             status = {'repo': False, 'webhooks': [], 'details': []}
-            # Check repo
             if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
                 status['repo'] = True
             else:
                 status['details'].append('Missing or invalid git repo')
-            # Check webhooks
             for wh in webhooks:
                 url = wh.get('webhook', '')
                 try:
@@ -940,6 +939,8 @@ class TestAllStatusWorker(QThread):
                     status['webhooks'].append(False)
                     status['details'].append(f"Webhook error: {url} ({e})")
             project_statuses[name] = status
+            self.status_signal.emit(project_statuses)
+            self.progress_signal.emit(idx + 1)
         self.status_signal.emit(project_statuses)
         self.done_signal.emit()
 
@@ -1370,43 +1371,9 @@ class MainWindow(QMainWindow):
             self.test_all_btn.setText('Test All')
             self.append_log('Test All complete.')
             self.progress_dialog.close()
-        def on_progress(value):
-            self.progress_dialog.setValue(value)
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
-        # Patch worker to emit progress
-        orig_run = self.worker.run
-        def run_with_progress():
-            from PyQt5.QtWidgets import QListWidgetItem
-            project_statuses = {}
-            for idx, project in enumerate(self.projects):
-                name = project.get('name', 'Unknown')
-                path = project.get('path', '')
-                webhooks = project.get('webhooks', [])
-                status = {'repo': False, 'webhooks': [], 'details': []}
-                if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
-                    status['repo'] = True
-                else:
-                    status['details'].append('Missing or invalid git repo')
-                for wh in webhooks:
-                    url = wh.get('webhook', '')
-                    try:
-                        client = DiscordClient(url)
-                        ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
-                        status['webhooks'].append(ok)
-                        if not ok:
-                            status['details'].append(f"Webhook failed: {url}")
-                    except Exception as e:
-                        status['webhooks'].append(False)
-                        status['details'].append(f"Webhook error: {url} ({e})")
-                project_statuses[name] = status
-                self.worker.status_signal.emit(project_statuses)
-                self.progress_dialog.setValue(idx + 1)
-                if self.progress_dialog.wasCanceled():
-                    break
-            self.worker.status_signal.emit(project_statuses)
-            self.worker.done_signal.emit()
-        self.worker.run = run_with_progress
+        self.worker.progress_signal.connect(self.progress_dialog.setValue)
         self.worker.start()
 
     def test_selected_project(self):
