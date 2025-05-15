@@ -389,6 +389,7 @@ class WebhookTestWorker(QThread):
 class CheckAllNowWorker(QThread):
     log_signal = pyqtSignal(str)
     done_signal = pyqtSignal()
+    progress_signal = pyqtSignal(int)
     def __init__(self, projects, fmt):
         super().__init__()
         self.projects = projects
@@ -396,6 +397,8 @@ class CheckAllNowWorker(QThread):
     def run(self):
         import time
         now = time.time()
+        total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
+        count = 0
         for project in self.projects:
             name = project.get('name', 'Unknown')
             path = project.get('path', '')
@@ -404,6 +407,8 @@ class CheckAllNowWorker(QThread):
             webhooks = project.get('webhooks', [])
             if not os.path.exists(path):
                 self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                count += len(branches)
+                self.progress_signal.emit(count)
                 continue
             for branch in branches:
                 try:
@@ -412,12 +417,17 @@ class CheckAllNowWorker(QThread):
                     monitor = GitMonitor(path, ignored_files=[])
                 except Exception as e:
                     self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                    count += 1
+                    self.progress_signal.emit(count)
                     continue
                 latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
                 if not latest_commit:
                     self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                    count += 1
+                    self.progress_signal.emit(count)
                     continue
                 status, commits = monitor.get_changes()
+                # Apply filters as in MonitorWorker
                 send = False
                 filtered_commits = ''
                 filtered_status = ''
@@ -441,6 +451,8 @@ class CheckAllNowWorker(QThread):
                         send = True
                 if not send:
                     self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                    count += 1
+                    self.progress_signal.emit(count)
                     continue
                 for wh in webhooks:
                     msg = MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
@@ -453,6 +465,8 @@ class CheckAllNowWorker(QThread):
                             self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
                     except Exception as e:
                         self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+                count += 1
+                self.progress_signal.emit(count)
         self.done_signal.emit()
 
 class WebhookDialog(QDialog):
@@ -1136,7 +1150,8 @@ class MainWindow(QMainWindow):
         self.start_monitor_btn.clicked.connect(self.start_monitoring)
         self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
-        self.test_all_btn.clicked.connect(self.check_all_now)
+        self.test_all_btn.clicked.connect(self.test_all_status)
+        self.check_now_btn.clicked.connect(self.check_all_now)
 
         self.monitor_thread = None
         self.monitor_interval = self.settings.get('master_frequency', 1) * 60
@@ -1353,6 +1368,31 @@ class MainWindow(QMainWindow):
             self.worker.start()
 
     def check_all_now(self):
+        self.check_now_btn.setEnabled(False)
+        self.check_now_btn.setText('Checking...')
+        fmt = self.check_format_combo.currentText()
+        total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
+        self.progress_dialog = QProgressDialog('Sending reports to all webhooks...', 'Cancel', 0, total, self)
+        self.progress_dialog.setWindowTitle('Check All Now')
+        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(True)
+        self.worker = CheckAllNowWorker(self.projects, fmt)
+        def on_log(msg):
+            self.append_log(msg)
+        def on_done():
+            self.check_now_btn.setEnabled(True)
+            self.check_now_btn.setText('Check All Now')
+            self.append_log('Check All Now complete.')
+            self.progress_dialog.close()
+        self.worker.log_signal.connect(on_log)
+        self.worker.done_signal.connect(on_done)
+        self.worker.progress_signal.connect(self.progress_dialog.setValue)
+        self.worker.start()
+
+    def test_all_status(self):
         self.test_all_btn.setEnabled(False)
         self.test_all_btn.setText('Testing...')
         self.progress_dialog = QProgressDialog('Testing all projects...', 'Cancel', 0, len(self.projects), self)
