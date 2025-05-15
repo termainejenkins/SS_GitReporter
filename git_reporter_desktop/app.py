@@ -737,8 +737,12 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(main_layout)
 
         # Project list and controls
+        test_all_layout = QHBoxLayout()
+        self.test_all_btn = QPushButton('Test All')
+        test_all_layout.addWidget(QLabel('Projects'))
+        test_all_layout.addWidget(self.test_all_btn)
+        main_layout.addLayout(test_all_layout)
         self.project_list = QListWidget()
-        main_layout.addWidget(QLabel('Projects'))
         main_layout.addWidget(self.project_list)
 
         # Master frequency control on the main window
@@ -846,6 +850,7 @@ class MainWindow(QMainWindow):
         self.start_monitor_btn.clicked.connect(self.start_monitoring)
         self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
+        self.test_all_btn.clicked.connect(self.test_all_status)
 
         self.monitor_thread = None
         self.monitor_interval = self.settings.get('master_frequency', 1) * 60
@@ -1150,6 +1155,35 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(dark_stylesheet)
         else:
             self.setStyleSheet("")
+
+    def test_all_status(self):
+        import subprocess
+        from PyQt5.QtWidgets import QListWidgetItem
+        self.project_statuses = {}
+        for idx, project in enumerate(self.projects):
+            name = project.get('name', 'Unknown')
+            path = project.get('path', '')
+            webhooks = project.get('webhooks', [])
+            status = {'repo': False, 'webhooks': [], 'details': []}
+            # Check repo
+            if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
+                status['repo'] = True
+            else:
+                status['details'].append('Missing or invalid git repo')
+            # Check webhooks
+            for wh in webhooks:
+                url = wh.get('webhook', '')
+                try:
+                    client = DiscordClient(url)
+                    ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
+                    status['webhooks'].append(ok)
+                    if not ok:
+                        status['details'].append(f"Webhook failed: {url}")
+                except Exception as e:
+                    status['webhooks'].append(False)
+                    status['details'].append(f"Webhook error: {url} ({e})")
+            self.project_statuses[name] = status
+        self.refresh_project_list()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
