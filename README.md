@@ -62,8 +62,12 @@ SENTIENT SOLUTIONS LLC
 2. Install dependencies: `py -m pip install -r requirements.txt`
 3. Configure `config.json` with your:
    - UE4 project path
-   - Discord webhook URL
-4. Run: `py main.py`
+4. Create a `.env` file in the project root with the following content:
+   
+   ```env
+   DISCORD_WEBHOOK_URL=your_webhook_url_here
+   ```
+5. Run: `py main.py`
 
 ## Documentation
 - [Project Requirements](docs/PROJECT_REQUIREMENTS.md)

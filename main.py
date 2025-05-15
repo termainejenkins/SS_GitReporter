@@ -5,6 +5,7 @@ import sys
 from git_reporter.config_manager import ConfigManager
 from git_reporter.monitor import GitMonitor
 from git_reporter.discord_client import DiscordClient
+from dotenv import load_dotenv
 
 def setup_logging():
     """Set up logging configuration."""
@@ -22,7 +23,7 @@ def setup_logging():
 
 def validate_config(config):
     """Validate configuration settings."""
-    required_fields = ['project_path', 'discord_webhook_url']
+    required_fields = ['project_path']
     for field in required_fields:
         if not config.get(field):
             raise ValueError(f"Missing required configuration: {field}")
@@ -34,6 +35,7 @@ def main():
     
     try:
         # Load and validate configuration
+        load_dotenv()
         config = ConfigManager().config
         validate_config(config)
         
@@ -47,7 +49,7 @@ def main():
             logger.error(f"Git repository error: {str(e)}")
             sys.exit(1)
         
-        discord = DiscordClient(config['discord_webhook_url'])
+        discord = DiscordClient(os.getenv('DISCORD_WEBHOOK_URL'))
         
         # Send initial status message
         startup_msg = f"UE4 Git Reporter started\nMonitoring: {config['project_path']}"
