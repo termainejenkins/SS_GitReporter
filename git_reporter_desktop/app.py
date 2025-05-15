@@ -1311,6 +1311,13 @@ class MainWindow(QMainWindow):
         if self.monitor_thread and self.monitor_thread.isRunning():
             self.monitor_thread.stop()
             self.monitor_thread.wait()
+        # Ensure any running worker thread is stopped and waited for
+        if hasattr(self, 'worker') and self.worker is not None:
+            try:
+                self.worker.quit()
+                self.worker.wait()
+            except Exception:
+                pass
         self.save_all()  # Ensure all data is saved before exit
         event.accept()
 
