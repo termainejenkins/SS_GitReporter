@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
-    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget, QProgressDialog
+    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget, QProgressDialog, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
@@ -61,7 +61,8 @@ DEFAULT_CONFIG = {
         "auto_start_monitoring": True,
         "always_on_top": False,
         "dark_mode": False,
-        "start_with_log_open": False
+        "start_with_log_open": False,
+        "show_inline_progress_bars": True
     }
 }
 
@@ -875,6 +876,10 @@ class SettingsDialog(QDialog):
         self.start_with_log_open_cb = QCheckBox('Start With Log Open')
         layout.addWidget(self.start_with_log_open_cb)
 
+        # Show Inline Progress Bars
+        self.show_inline_progress_cb = QCheckBox('Show Inline Progress Bars')
+        layout.addWidget(self.show_inline_progress_cb)
+
         # Master monitoring frequency
         freq_layout = QHBoxLayout()
         freq_label = QLabel('Master Monitoring Frequency (minutes):')
@@ -913,6 +918,7 @@ class SettingsDialog(QDialog):
             self.master_freq_spin.setValue(settings.get('master_frequency', 1))
             self.auto_start_monitoring_cb.setChecked(settings.get('auto_start_monitoring', True))
             self.start_with_log_open_cb.setChecked(settings.get('start_with_log_open', False))
+            self.show_inline_progress_cb.setChecked(settings.get('show_inline_progress_bars', True))
             self.refresh_schedule_list()
 
     def add_time(self):
@@ -940,7 +946,8 @@ class SettingsDialog(QDialog):
             'schedules': self.schedules,
             'master_frequency': self.master_freq_spin.value(),
             'auto_start_monitoring': self.auto_start_monitoring_cb.isChecked(),
-            'master_frequency': self.master_freq_spin.value()
+            'start_with_log_open': self.start_with_log_open_cb.isChecked(),
+            'show_inline_progress_bars': self.show_inline_progress_cb.isChecked()
         }
 
 class TimeDayDialog(QDialog):
@@ -1125,6 +1132,22 @@ class MainWindow(QMainWindow):
         check_layout.addWidget(self.check_now_btn)
         main_layout.addLayout(check_layout)
         self.check_now_btn.clicked.connect(self.check_all_now)
+
+        # Add inline progress bars for each action
+        self.check_now_progress = QProgressBar()
+        self.check_now_progress.setVisible(False)
+        self.test_all_progress = QProgressBar()
+        self.test_all_progress.setVisible(False)
+        self.import_progress = QProgressBar()
+        self.import_progress.setVisible(False)
+        self.export_progress = QProgressBar()
+        self.export_progress.setVisible(False)
+        # Place progress bars below their respective buttons
+        main_layout.insertWidget(main_layout.indexOf(self.check_now_btn) + 1, self.check_now_progress)
+        main_layout.insertWidget(main_layout.indexOf(self.test_all_btn) + 1, self.test_all_progress)
+        # For import/export, place below menu or at bottom
+        main_layout.addWidget(self.import_progress)
+        main_layout.addWidget(self.export_progress)
 
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
@@ -1368,16 +1391,16 @@ class MainWindow(QMainWindow):
     def export_data(self):
         path, _ = QFileDialog.getSaveFileName(self, 'Export Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
+            use_inline = self.settings.get('show_inline_progress_bars', True)
+            if use_inline:
+                self.export_progress.setVisible(True)
+                self.export_progress.setRange(0, 0)
+                self.export_progress.setValue(0)
             self.export_action.setEnabled(False) if hasattr(self, 'export_action') else None
-            self.progress_dialog = QProgressDialog('Exporting data...', 'Cancel', 0, 0, self)
-            self.progress_dialog.setWindowTitle('Export Data')
-            self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-            self.progress_dialog.setMinimumDuration(0)
-            self.progress_dialog.setAutoClose(True)
-            self.progress_dialog.setAutoReset(True)
             self.worker = ExportDataWorker(path, self.projects)
             def on_result(ok, message):
-                self.progress_dialog.close()
+                if use_inline:
+                    self.export_progress.setVisible(False)
                 if ok:
                     QMessageBox.information(self, 'Export Data', message)
                 else:
@@ -1390,16 +1413,16 @@ class MainWindow(QMainWindow):
     def import_data(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Import Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
+            use_inline = self.settings.get('show_inline_progress_bars', True)
+            if use_inline:
+                self.import_progress.setVisible(True)
+                self.import_progress.setRange(0, 0)
+                self.import_progress.setValue(0)
             self.import_action.setEnabled(False) if hasattr(self, 'import_action') else None
-            self.progress_dialog = QProgressDialog('Importing data...', 'Cancel', 0, 0, self)
-            self.progress_dialog.setWindowTitle('Import Data')
-            self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-            self.progress_dialog.setMinimumDuration(0)
-            self.progress_dialog.setAutoClose(True)
-            self.progress_dialog.setAutoReset(True)
             self.worker = ImportDataWorker(path)
             def on_result(new_projects, message):
-                self.progress_dialog.close()
+                if use_inline:
+                    self.import_progress.setVisible(False)
                 if not new_projects:
                     QMessageBox.warning(self, 'Import Data', message)
                 else:
@@ -1432,16 +1455,20 @@ class MainWindow(QMainWindow):
                     self.check_now_btn.setEnabled(True)
                     self.check_now_btn.setText('Check All Now')
                     return
+            use_inline = self.settings.get('show_inline_progress_bars', True)
+            if use_inline:
+                self.check_now_progress.setVisible(True)
+                total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
+                self.check_now_progress.setRange(0, total)
+                self.check_now_progress.setValue(0)
             self.check_now_btn.setEnabled(False)
             self.check_now_btn.setText('Checking...')
             fmt = self.check_format_combo.currentText()
-            total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
             self.worker = CheckAllNowWorker(self.projects, fmt)
             def on_log(msg):
                 try:
                     if not self.isVisible():
                         return
-                    print('[WORKER LOG]', msg)
                     self.append_log(msg)
                 except Exception as e:
                     print(f'[ERROR] Exception in on_log: {e}')
@@ -1449,38 +1476,33 @@ class MainWindow(QMainWindow):
                 try:
                     if not self.isVisible():
                         return
-                    print('[DEBUG] CheckAllNowWorker done')
-                    self.append_log('[DEBUG] CheckAllNowWorker done')
                     self.check_now_btn.setEnabled(True)
                     self.check_now_btn.setText('Check All Now')
                     self.append_log('Check All Now complete.')
+                    if use_inline:
+                        self.check_now_progress.setVisible(False)
                     self.worker = None
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
             self.worker.log_signal.connect(on_log)
             self.worker.done_signal.connect(on_done)
-            print('[DEBUG] Starting CheckAllNowWorker')
-            self.append_log('[DEBUG] Starting CheckAllNowWorker')
+            if use_inline:
+                self.worker.progress_signal.connect(self.check_now_progress.setValue)
             self.worker.start()
-            print('[DEBUG] CheckAllNowWorker started')
-            self.append_log('[DEBUG] CheckAllNowWorker started')
         except Exception as e:
             tb = traceback.format_exc()
-            print(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
             self.append_log(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
             self.check_now_btn.setEnabled(True)
             self.check_now_btn.setText('Check All Now')
 
     def test_all_status(self):
+        use_inline = self.settings.get('show_inline_progress_bars', True)
+        if use_inline:
+            self.test_all_progress.setVisible(True)
+            self.test_all_progress.setRange(0, len(self.projects))
+            self.test_all_progress.setValue(0)
         self.test_all_btn.setEnabled(False)
         self.test_all_btn.setText('Testing...')
-        self.progress_dialog = QProgressDialog('Testing all projects...', 'Cancel', 0, len(self.projects), self)
-        self.progress_dialog.setWindowTitle('Testing All Projects')
-        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-        self.progress_dialog.setValue(0)
-        self.progress_dialog.setMinimumDuration(0)
-        self.progress_dialog.setAutoClose(True)
-        self.progress_dialog.setAutoReset(True)
         self.worker = TestAllStatusWorker(self.projects)
         def on_status(project_statuses):
             self.project_statuses = project_statuses
@@ -1489,10 +1511,13 @@ class MainWindow(QMainWindow):
             self.test_all_btn.setEnabled(True)
             self.test_all_btn.setText('Test All')
             self.append_log('Test All complete.')
-            self.progress_dialog.close()
+            if use_inline:
+                self.test_all_progress.setVisible(False)
+            self.worker = None
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
-        self.worker.progress_signal.connect(self.progress_dialog.setValue)
+        if use_inline:
+            self.worker.progress_signal.connect(self.test_all_progress.setValue)
         self.worker.start()
 
     def test_selected_project(self):
