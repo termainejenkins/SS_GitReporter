@@ -744,6 +744,10 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(test_all_layout)
         self.project_list = QListWidget()
         main_layout.addWidget(self.project_list)
+        self.project_list.itemClicked.connect(self.project_item_clicked)
+        self.project_test_btn = QPushButton('Test Selected')
+        main_layout.addWidget(self.project_test_btn)
+        self.project_test_btn.clicked.connect(self.test_selected_project)
 
         # Master frequency control on the main window
         freq_layout = QHBoxLayout()
@@ -1200,6 +1204,40 @@ class MainWindow(QMainWindow):
                     status['webhooks'].append(False)
                     status['details'].append(f"Webhook error: {url} ({e})")
             self.project_statuses[name] = status
+        self.refresh_project_list()
+
+    def project_item_clicked(self, item):
+        # Optionally, could auto-select the project for testing
+        pass
+
+    def test_selected_project(self):
+        row = self.project_list.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, 'Test Project', 'Please select a project to test.')
+            return
+        project = self.projects[row]
+        name = project.get('name', 'Unknown')
+        path = project.get('path', '')
+        webhooks = project.get('webhooks', [])
+        status = {'repo': False, 'webhooks': [], 'details': []}
+        if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
+            status['repo'] = True
+        else:
+            status['details'].append('Missing or invalid git repo')
+        for wh in webhooks:
+            url = wh.get('webhook', '')
+            try:
+                client = DiscordClient(url)
+                ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
+                status['webhooks'].append(ok)
+                if not ok:
+                    status['details'].append(f"Webhook failed: {url}")
+            except Exception as e:
+                status['webhooks'].append(False)
+                status['details'].append(f"Webhook error: {url} ({e})")
+        if not hasattr(self, 'project_statuses'):
+            self.project_statuses = {}
+        self.project_statuses[name] = status
         self.refresh_project_list()
 
 if __name__ == '__main__':
