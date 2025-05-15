@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
     QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
 import shutil
 import platform
@@ -369,6 +369,92 @@ def get_git_branches(repo_path):
     except Exception:
         return []
 
+class WebhookTestWorker(QThread):
+    result_signal = pyqtSignal(bool, str)
+    def __init__(self, url, msg):
+        super().__init__()
+        self.url = url
+        self.msg = msg
+    def run(self):
+        try:
+            client = DiscordClient(self.url)
+            ok = client.send_message(self.msg)
+            if ok:
+                self.result_signal.emit(True, 'Test message sent successfully!')
+            else:
+                self.result_signal.emit(False, 'Failed to send test message.')
+        except Exception as e:
+            self.result_signal.emit(False, f'Error: {e}')
+
+class CheckAllNowWorker(QThread):
+    log_signal = pyqtSignal(str)
+    done_signal = pyqtSignal()
+    def __init__(self, projects, fmt):
+        super().__init__()
+        self.projects = projects
+        self.fmt = fmt
+    def run(self):
+        import time
+        now = time.time()
+        for project in self.projects:
+            name = project.get('name', 'Unknown')
+            path = project.get('path', '')
+            branches = project.get('branches', []) or ['']
+            filters = project.get('filters', {})
+            webhooks = project.get('webhooks', [])
+            if not os.path.exists(path):
+                self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                continue
+            for branch in branches:
+                try:
+                    if branch:
+                        subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
+                    monitor = GitMonitor(path, ignored_files=[])
+                except Exception as e:
+                    self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                    continue
+                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
+                if not latest_commit:
+                    self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                    continue
+                status, commits = monitor.get_changes()
+                send = False
+                filtered_commits = ''
+                filtered_status = ''
+                if filters.get('commits', True) and commits:
+                    filtered_commits = commits
+                    send = True
+                if filters.get('merges', False) and commits:
+                    if any('merge' in line.lower() for line in commits.split('\n')):
+                        filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
+                        send = True
+                if filters.get('tags', False):
+                    tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
+                    if tags:
+                        filtered_commits += f"\nTags: {tags}"
+                        send = True
+                if filters.get('filetypes', '') and status:
+                    types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
+                    filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
+                    if filtered_lines:
+                        filtered_status = '\n'.join(filtered_lines)
+                        send = True
+                if not send:
+                    self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                    continue
+                for wh in webhooks:
+                    msg = MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
+                    self.log_signal.emit(f"[Check Now] Sending {self.fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
+                    try:
+                        client = DiscordClient(wh['webhook'])
+                        if client.send_message(msg):
+                            self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                        else:
+                            self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                    except Exception as e:
+                        self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+        self.done_signal.emit()
+
 class WebhookDialog(QDialog):
     def __init__(self, parent=None, webhook=None, project_name=None, status=None, commits=None, branch=None):
         super().__init__(parent)
@@ -424,7 +510,7 @@ class WebhookDialog(QDialog):
 
         self.ok_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
-        self.test_btn.clicked.connect(self.test_webhook)
+        self.test_btn.clicked.connect(self.threaded_test_webhook)
         self.preview_btn.clicked.connect(self.preview_message)
 
         if webhook:
@@ -443,7 +529,7 @@ class WebhookDialog(QDialog):
             'template': self.template_edit.toPlainText().strip()
         }
 
-    def test_webhook(self):
+    def threaded_test_webhook(self):
         url = self.webhook_edit.text().strip()
         fmt = self.format_combo.currentText()
         template = self.template_edit.toPlainText().strip()
@@ -451,14 +537,18 @@ class WebhookDialog(QDialog):
         if not url:
             QMessageBox.warning(self, 'Test Webhook', 'Please enter a webhook URL.')
             return
-        try:
-            client = DiscordClient(url)
-            if client.send_message(msg):
-                QMessageBox.information(self, 'Test Webhook', 'Test message sent successfully!')
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText('Testing...')
+        self.worker = WebhookTestWorker(url, msg)
+        def on_result(ok, message):
+            self.test_btn.setEnabled(True)
+            self.test_btn.setText('Test')
+            if ok:
+                QMessageBox.information(self, 'Test Webhook', message)
             else:
-                QMessageBox.critical(self, 'Test Webhook', 'Failed to send test message.')
-        except Exception as e:
-            QMessageBox.critical(self, 'Test Webhook', f'Error: {e}')
+                QMessageBox.critical(self, 'Test Webhook', message)
+        self.worker.result_signal.connect(on_result)
+        self.worker.start()
 
     def preview_message(self):
         fmt = self.format_combo.currentText()
@@ -818,6 +908,101 @@ class TimeDayDialog(QDialog):
         days = [i for i, cb in enumerate(self.day_cbs) if cb.isChecked()]
         return {'time': time_str, 'days': days}
 
+class TestAllStatusWorker(QThread):
+    status_signal = pyqtSignal(dict)
+    done_signal = pyqtSignal()
+    def __init__(self, projects):
+        super().__init__()
+        self.projects = projects
+    def run(self):
+        from PyQt5.QtWidgets import QListWidgetItem
+        project_statuses = {}
+        for idx, project in enumerate(self.projects):
+            name = project.get('name', 'Unknown')
+            path = project.get('path', '')
+            webhooks = project.get('webhooks', [])
+            status = {'repo': False, 'webhooks': [], 'details': []}
+            # Check repo
+            if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
+                status['repo'] = True
+            else:
+                status['details'].append('Missing or invalid git repo')
+            # Check webhooks
+            for wh in webhooks:
+                url = wh.get('webhook', '')
+                try:
+                    client = DiscordClient(url)
+                    ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
+                    status['webhooks'].append(ok)
+                    if not ok:
+                        status['details'].append(f"Webhook failed: {url}")
+                except Exception as e:
+                    status['webhooks'].append(False)
+                    status['details'].append(f"Webhook error: {url} ({e})")
+            project_statuses[name] = status
+        self.status_signal.emit(project_statuses)
+        self.done_signal.emit()
+
+class TestSelectedProjectWorker(QThread):
+    status_signal = pyqtSignal(str, dict)
+    done_signal = pyqtSignal()
+    def __init__(self, project):
+        super().__init__()
+        self.project = project
+    def run(self):
+        name = self.project.get('name', 'Unknown')
+        path = self.project.get('path', '')
+        webhooks = self.project.get('webhooks', [])
+        status = {'repo': False, 'webhooks': [], 'details': []}
+        if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
+            status['repo'] = True
+        else:
+            status['details'].append('Missing or invalid git repo')
+        for wh in webhooks:
+            url = wh.get('webhook', '')
+            try:
+                client = DiscordClient(url)
+                ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
+                status['webhooks'].append(ok)
+                if not ok:
+                    status['details'].append(f"Webhook failed: {url}")
+            except Exception as e:
+                status['webhooks'].append(False)
+                status['details'].append(f"Webhook error: {url} ({e})")
+        self.status_signal.emit(name, status)
+        self.done_signal.emit()
+
+class ImportDataWorker(QThread):
+    result_signal = pyqtSignal(list, str)
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+    def run(self):
+        try:
+            with open(self.path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            new_projects = data.get('projects', [])
+            if not new_projects:
+                self.result_signal.emit([], 'No projects found in the selected file.')
+            else:
+                self.result_signal.emit(new_projects, 'Import successful!')
+        except Exception as e:
+            self.result_signal.emit([], f'Import failed: {e}')
+
+class ExportDataWorker(QThread):
+    result_signal = pyqtSignal(bool, str)
+    def __init__(self, path, projects):
+        super().__init__()
+        self.path = path
+        self.projects = projects
+    def run(self):
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump({'projects': self.projects}, f, indent=2)
+            self.result_signal.emit(True, 'Export successful!')
+        except Exception as e:
+            self.result_signal.emit(False, f'Export failed: {e}')
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -880,7 +1065,7 @@ class MainWindow(QMainWindow):
         check_layout.addWidget(self.check_format_combo)
         check_layout.addWidget(self.check_now_btn)
         main_layout.addLayout(check_layout)
-        self.check_now_btn.clicked.connect(self.check_all_now)
+        self.check_now_btn.clicked.connect(self.threaded_check_all_now)
 
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
@@ -1115,100 +1300,79 @@ class MainWindow(QMainWindow):
     def export_data(self):
         path, _ = QFileDialog.getSaveFileName(self, 'Export Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump({'projects': self.projects}, f, indent=2)
-                QMessageBox.information(self, 'Export Data', 'Export successful!')
-            except Exception as e:
-                QMessageBox.critical(self, 'Export Data', f'Export failed: {e}')
+            self.export_action.setEnabled(False) if hasattr(self, 'export_action') else None
+            self.worker = ExportDataWorker(path, self.projects)
+            def on_result(ok, message):
+                if ok:
+                    QMessageBox.information(self, 'Export Data', message)
+                else:
+                    QMessageBox.critical(self, 'Export Data', message)
+                if hasattr(self, 'export_action'):
+                    self.export_action.setEnabled(True)
+            self.worker.result_signal.connect(on_result)
+            self.worker.start()
 
     def import_data(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Import Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                new_projects = data.get('projects', [])
+            self.import_action.setEnabled(False) if hasattr(self, 'import_action') else None
+            self.worker = ImportDataWorker(path)
+            def on_result(new_projects, message):
                 if not new_projects:
-                    QMessageBox.warning(self, 'Import Data', 'No projects found in the selected file.')
-                    return
-                choice = QMessageBox.question(self, 'Import Data', 'Do you want to overwrite (Yes) or merge (No) with existing projects?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-                if choice == QMessageBox.Yes:
-                    self.projects = new_projects
+                    QMessageBox.warning(self, 'Import Data', message)
                 else:
-                    # Merge: add new projects that don't already exist by name+path
-                    existing_keys = {(p['name'], p['path']) for p in self.projects}
-                    for p in new_projects:
-                        if (p['name'], p['path']) not in existing_keys:
-                            self.projects.append(p)
-                self.save_all()
-                self.refresh_project_list()
-                QMessageBox.information(self, 'Import Data', 'Import successful!')
-            except Exception as e:
-                QMessageBox.critical(self, 'Import Data', f'Import failed: {e}')
+                    choice = QMessageBox.question(self, 'Import Data', 'Do you want to overwrite (Yes) or merge (No) with existing projects?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if choice == QMessageBox.Yes:
+                        self.projects = new_projects
+                    else:
+                        existing_keys = {(p['name'], p['path']) for p in self.projects}
+                        for p in new_projects:
+                            if (p['name'], p['path']) not in existing_keys:
+                                self.projects.append(p)
+                    self.save_all()
+                    self.refresh_project_list()
+                    QMessageBox.information(self, 'Import Data', message)
+                if hasattr(self, 'import_action'):
+                    self.import_action.setEnabled(True)
+            self.worker.result_signal.connect(on_result)
+            self.worker.start()
 
-    def check_all_now(self):
-        fmt = self.check_format_combo.currentText()
-        import time
-        now = time.time()
-        for project in self.projects:
-            name = project.get('name', 'Unknown')
-            path = project.get('path', '')
-            branches = project.get('branches', []) or ['']
-            filters = project.get('filters', {})
-            webhooks = project.get('webhooks', [])
-            if not os.path.exists(path):
-                self.append_log(f"[ERROR] Project path does not exist: {path}")
-                continue
-            for branch in branches:
-                try:
-                    if branch:
-                        subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
-                    monitor = GitMonitor(path, ignored_files=[])
-                except Exception as e:
-                    self.append_log(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
-                    continue
-                latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
-                if not latest_commit:
-                    self.append_log(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
-                    continue
-                status, commits = monitor.get_changes()
-                # Apply filters as in MonitorWorker
-                send = False
-                filtered_commits = ''
-                filtered_status = ''
-                if filters.get('commits', True) and commits:
-                    filtered_commits = commits
-                    send = True
-                if filters.get('merges', False) and commits:
-                    if any('merge' in line.lower() for line in commits.split('\n')):
-                        filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
-                        send = True
-                if filters.get('tags', False):
-                    tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
-                    if tags:
-                        filtered_commits += f"\nTags: {tags}"
-                        send = True
-                if filters.get('filetypes', '') and status:
-                    types = [ft.strip() for ft in filters['filetypes'].split(',') if ft.strip()]
-                    filtered_lines = [line for line in status.split('\n') if any(line.endswith(t) for t in types)]
-                    if filtered_lines:
-                        filtered_status = '\n'.join(filtered_lines)
-                        send = True
-                if not send:
-                    self.append_log(f"No matching changes for '{name}' [{branch}].")
-                    continue
-                for wh in webhooks:
-                    msg = MonitorWorker.format_message(fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
-                    self.append_log(f"[Check Now] Sending {fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
-                    try:
-                        client = DiscordClient(wh['webhook'])
-                        if client.send_message(msg):
-                            self.append_log(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
-                        else:
-                            self.append_log(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
-                    except Exception as e:
-                        self.append_log(f"[ERROR] Exception sending to Discord: {e}")
+    def test_all_status(self):
+        self.test_all_btn.setEnabled(False)
+        self.test_all_btn.setText('Testing...')
+        self.worker = TestAllStatusWorker(self.projects)
+        def on_status(project_statuses):
+            self.project_statuses = project_statuses
+            self.refresh_project_list()
+        def on_done():
+            self.test_all_btn.setEnabled(True)
+            self.test_all_btn.setText('Test All')
+            self.append_log('Test All complete.')
+        self.worker.status_signal.connect(on_status)
+        self.worker.done_signal.connect(on_done)
+        self.worker.start()
+
+    def test_selected_project(self):
+        row = self.project_list.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, 'Test Project', 'Please select a project to test.')
+            return
+        project = self.projects[row]
+        self.project_test_btn.setEnabled(False)
+        self.project_test_btn.setText('Testing...')
+        self.worker = TestSelectedProjectWorker(project)
+        def on_status(name, status):
+            if not hasattr(self, 'project_statuses'):
+                self.project_statuses = {}
+            self.project_statuses[name] = status
+            self.refresh_project_list()
+        def on_done():
+            self.project_test_btn.setEnabled(True)
+            self.project_test_btn.setText('Test Selected')
+            self.append_log('Test Selected complete.')
+        self.worker.status_signal.connect(on_status)
+        self.worker.done_signal.connect(on_done)
+        self.worker.start()
 
     def set_always_on_top(self, checked):
         self.settings['always_on_top'] = checked
@@ -1240,68 +1404,9 @@ class MainWindow(QMainWindow):
         else:
             self.setStyleSheet("")
 
-    def test_all_status(self):
-        import subprocess
-        from PyQt5.QtWidgets import QListWidgetItem
-        self.project_statuses = {}
-        for idx, project in enumerate(self.projects):
-            name = project.get('name', 'Unknown')
-            path = project.get('path', '')
-            webhooks = project.get('webhooks', [])
-            status = {'repo': False, 'webhooks': [], 'details': []}
-            # Check repo
-            if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
-                status['repo'] = True
-            else:
-                status['details'].append('Missing or invalid git repo')
-            # Check webhooks
-            for wh in webhooks:
-                url = wh.get('webhook', '')
-                try:
-                    client = DiscordClient(url)
-                    ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
-                    status['webhooks'].append(ok)
-                    if not ok:
-                        status['details'].append(f"Webhook failed: {url}")
-                except Exception as e:
-                    status['webhooks'].append(False)
-                    status['details'].append(f"Webhook error: {url} ({e})")
-            self.project_statuses[name] = status
-        self.refresh_project_list()
-
     def project_item_clicked(self, item):
         # Optionally, could auto-select the project for testing
         pass
-
-    def test_selected_project(self):
-        row = self.project_list.currentRow()
-        if row < 0:
-            QMessageBox.warning(self, 'Test Project', 'Please select a project to test.')
-            return
-        project = self.projects[row]
-        name = project.get('name', 'Unknown')
-        path = project.get('path', '')
-        webhooks = project.get('webhooks', [])
-        status = {'repo': False, 'webhooks': [], 'details': []}
-        if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
-            status['repo'] = True
-        else:
-            status['details'].append('Missing or invalid git repo')
-        for wh in webhooks:
-            url = wh.get('webhook', '')
-            try:
-                client = DiscordClient(url)
-                ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
-                status['webhooks'].append(ok)
-                if not ok:
-                    status['details'].append(f"Webhook failed: {url}")
-            except Exception as e:
-                status['webhooks'].append(False)
-                status['details'].append(f"Webhook error: {url} ({e})")
-        if not hasattr(self, 'project_statuses'):
-            self.project_statuses = {}
-        self.project_statuses[name] = status
-        self.refresh_project_list()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

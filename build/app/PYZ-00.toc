@@ -198,6 +198,10 @@
    'C:\\Users\\terma\\SoftwareProjects\\z_SENTIENT '
    'SOLUTIONS\\SS_GitReporter\\git_reporter\\__init__.py',
    'PYMODULE'),
+  ('git_reporter.config_utils',
+   'C:\\Users\\terma\\SoftwareProjects\\z_SENTIENT '
+   'SOLUTIONS\\SS_GitReporter\\git_reporter\\config_utils.py',
+   'PYMODULE'),
   ('git_reporter.discord_client',
    'C:\\Users\\terma\\SoftwareProjects\\z_SENTIENT '
    'SOLUTIONS\\SS_GitReporter\\git_reporter\\discord_client.py',
