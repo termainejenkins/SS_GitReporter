@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLabel, QMenuBar, QAction, QSystemTrayIcon, QStyle, QMenu,
     QDialog, QLineEdit, QComboBox, QFormLayout, QMessageBox, QListWidgetItem, QTextEdit, QFileDialog,
-    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget
+    QTimeEdit, QCheckBox, QDialogButtonBox, QSpinBox, QGroupBox, QGridLayout, QTabWidget, QProgressDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon
@@ -1301,8 +1301,15 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, 'Export Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
             self.export_action.setEnabled(False) if hasattr(self, 'export_action') else None
+            self.progress_dialog = QProgressDialog('Exporting data...', 'Cancel', 0, 0, self)
+            self.progress_dialog.setWindowTitle('Export Data')
+            self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+            self.progress_dialog.setMinimumDuration(0)
+            self.progress_dialog.setAutoClose(True)
+            self.progress_dialog.setAutoReset(True)
             self.worker = ExportDataWorker(path, self.projects)
             def on_result(ok, message):
+                self.progress_dialog.close()
                 if ok:
                     QMessageBox.information(self, 'Export Data', message)
                 else:
@@ -1316,8 +1323,15 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, 'Import Projects and Webhooks', '', 'JSON Files (*.json)')
         if path:
             self.import_action.setEnabled(False) if hasattr(self, 'import_action') else None
+            self.progress_dialog = QProgressDialog('Importing data...', 'Cancel', 0, 0, self)
+            self.progress_dialog.setWindowTitle('Import Data')
+            self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+            self.progress_dialog.setMinimumDuration(0)
+            self.progress_dialog.setAutoClose(True)
+            self.progress_dialog.setAutoReset(True)
             self.worker = ImportDataWorker(path)
             def on_result(new_projects, message):
+                self.progress_dialog.close()
                 if not new_projects:
                     QMessageBox.warning(self, 'Import Data', message)
                 else:
@@ -1340,6 +1354,13 @@ class MainWindow(QMainWindow):
     def test_all_status(self):
         self.test_all_btn.setEnabled(False)
         self.test_all_btn.setText('Testing...')
+        self.progress_dialog = QProgressDialog('Testing all projects...', 'Cancel', 0, len(self.projects), self)
+        self.progress_dialog.setWindowTitle('Testing All Projects')
+        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(True)
         self.worker = TestAllStatusWorker(self.projects)
         def on_status(project_statuses):
             self.project_statuses = project_statuses
@@ -1348,8 +1369,44 @@ class MainWindow(QMainWindow):
             self.test_all_btn.setEnabled(True)
             self.test_all_btn.setText('Test All')
             self.append_log('Test All complete.')
+            self.progress_dialog.close()
+        def on_progress(value):
+            self.progress_dialog.setValue(value)
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
+        # Patch worker to emit progress
+        orig_run = self.worker.run
+        def run_with_progress():
+            from PyQt5.QtWidgets import QListWidgetItem
+            project_statuses = {}
+            for idx, project in enumerate(self.projects):
+                name = project.get('name', 'Unknown')
+                path = project.get('path', '')
+                webhooks = project.get('webhooks', [])
+                status = {'repo': False, 'webhooks': [], 'details': []}
+                if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
+                    status['repo'] = True
+                else:
+                    status['details'].append('Missing or invalid git repo')
+                for wh in webhooks:
+                    url = wh.get('webhook', '')
+                    try:
+                        client = DiscordClient(url)
+                        ok = client.send_message(f"[Test] Webhook test from UE4 Git Reporter Desktop for project '{name}'")
+                        status['webhooks'].append(ok)
+                        if not ok:
+                            status['details'].append(f"Webhook failed: {url}")
+                    except Exception as e:
+                        status['webhooks'].append(False)
+                        status['details'].append(f"Webhook error: {url} ({e})")
+                project_statuses[name] = status
+                self.worker.status_signal.emit(project_statuses)
+                self.progress_dialog.setValue(idx + 1)
+                if self.progress_dialog.wasCanceled():
+                    break
+            self.worker.status_signal.emit(project_statuses)
+            self.worker.done_signal.emit()
+        self.worker.run = run_with_progress
         self.worker.start()
 
     def test_selected_project(self):
@@ -1360,6 +1417,13 @@ class MainWindow(QMainWindow):
         project = self.projects[row]
         self.project_test_btn.setEnabled(False)
         self.project_test_btn.setText('Testing...')
+        self.progress_dialog = QProgressDialog('Testing selected project...', 'Cancel', 0, 1, self)
+        self.progress_dialog.setWindowTitle('Testing Project')
+        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(True)
         self.worker = TestSelectedProjectWorker(project)
         def on_status(name, status):
             if not hasattr(self, 'project_statuses'):
@@ -1370,6 +1434,8 @@ class MainWindow(QMainWindow):
             self.project_test_btn.setEnabled(True)
             self.project_test_btn.setText('Test Selected')
             self.append_log('Test Selected complete.')
+            self.progress_dialog.setValue(1)
+            self.progress_dialog.close()
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
         self.worker.start()
