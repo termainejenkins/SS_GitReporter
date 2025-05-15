@@ -38,7 +38,15 @@ MESSAGE_FORMATS = [
     'AI Summary'
 ]
 
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'desktop_config.json')
+def resource_path(relative_path):
+    # Get absolute path to resource, works for dev and for PyInstaller
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
+    return os.path.join(base_path, relative_path)
+
+CONFIG_FILE = resource_path('desktop_config.json')
 SETTINGS_FILE = CONFIG_FILE  # Use the same config file for simplicity
 
 MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
@@ -935,6 +943,7 @@ class MainWindow(QMainWindow):
 
     def save_config(self):
         try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump({'projects': self.projects}, f, indent=2)
         except Exception as e:
@@ -999,6 +1008,7 @@ class MainWindow(QMainWindow):
 
     def save_settings(self):
         try:
+            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
             with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception:
