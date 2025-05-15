@@ -34,10 +34,11 @@ def main():
     logger = logging.getLogger(__name__)
     
     try:
-        # Load and validate configuration
+        # Load and validate configuration (now robust: atomic save, backup, versioning, validation)
         load_dotenv()
-        config = ConfigManager().config
-        validate_config(config)
+        config_manager = ConfigManager()
+        config = config_manager.config
+        validate_config(config)  # This is now handled in config_utils, but keep for clarity
         
         # Show log if requested
         if config.get('start_with_log_open', False):
@@ -91,6 +92,8 @@ def main():
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {str(e)}")
                 time.sleep(60)  # Wait before retrying
+                
+        # If you change config at runtime, call config_manager.save_config()
                 
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")

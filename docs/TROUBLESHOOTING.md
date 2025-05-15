@@ -49,6 +49,14 @@ ERROR - Error running git command: [WinError 3] The system cannot find the path 
 3. Ensure sufficient system resources
 4. Consider using a process manager
 
+### 6. Config Corruption or Loss
+**Problem**: The app fails to start or reports config file errors
+**Solution**:
+1. The app automatically creates a backup of your config file before saving (`*.bak`).
+2. If the config is corrupted, the app will attempt to restore from backup or use default settings.
+3. You can manually restore by renaming the backup file to replace the corrupted config.
+4. Config files are validated on load; if invalid, the app will attempt to repair or prompt you for action.
+
 ## Reporting New Issues
 When reporting issues:
 1. Check logs in the `logs` directory
