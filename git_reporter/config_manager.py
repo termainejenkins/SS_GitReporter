@@ -19,7 +19,9 @@ class ConfigManager:
             "project_path": "",
             "check_interval_minutes": 30,
             "max_commits_to_show": 5,
-            "ignored_files": ["*.uasset", "Saved/*", "Intermediate/*"]
+            "ignored_files": ["*.uasset", "Saved/*", "Intermediate/*"],
+            "auto_start_monitoring": True,
+            "start_with_log_open": False
         }
         
         with open(self.config_path, 'w') as f:
