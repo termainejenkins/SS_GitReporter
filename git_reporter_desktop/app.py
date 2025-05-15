@@ -394,41 +394,64 @@ class CheckAllNowWorker(QThread):
         super().__init__()
         self.projects = projects
         self.fmt = fmt
+        self._should_stop = False
+    def stop(self):
+        self._should_stop = True
     def run(self):
         try:
+            print('[DEBUG] Entered CheckAllNowWorker.run')
+            self.log_signal.emit('[DEBUG] Entered CheckAllNowWorker.run')
             import time
             now = time.time()
             total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
             count = 0
             for project in self.projects:
+                if self._should_stop:
+                    self.log_signal.emit('[DEBUG] Worker stop flag set, exiting run loop.')
+                    break
                 name = project.get('name', 'Unknown')
                 path = project.get('path', '')
                 branches = project.get('branches', []) or ['']
                 filters = project.get('filters', {})
                 webhooks = project.get('webhooks', [])
+                if not name or not path or not isinstance(webhooks, list):
+                    msg = f"[ERROR] Invalid project data: {project}"
+                    print(msg)
+                    self.log_signal.emit(msg)
+                    count += len(branches)
+                    self.progress_signal.emit(count)
+                    continue
                 if not os.path.exists(path):
-                    self.log_signal.emit(f"[ERROR] Project path does not exist: {path}")
+                    msg = f"[ERROR] Project path does not exist: {path}"
+                    print(msg)
+                    self.log_signal.emit(msg)
                     count += len(branches)
                     self.progress_signal.emit(count)
                     continue
                 for branch in branches:
+                    if self._should_stop:
+                        self.log_signal.emit('[DEBUG] Worker stop flag set, exiting branch loop.')
+                        break
                     try:
                         if branch:
                             subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True)
                         monitor = GitMonitor(path, ignored_files=[])
                     except Exception as e:
-                        self.log_signal.emit(f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}")
+                        msg = f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}"
+                        print(msg)
+                        self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
                         continue
                     latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
                     if not latest_commit:
-                        self.log_signal.emit(f"[ERROR] Could not get latest commit for '{name}' [{branch}]")
+                        msg = f"[ERROR] Could not get latest commit for '{name}' [{branch}]"
+                        print(msg)
+                        self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
                         continue
                     status, commits = monitor.get_changes()
-                    # Apply filters as in MonitorWorker
                     send = False
                     filtered_commits = ''
                     filtered_status = ''
@@ -451,27 +474,42 @@ class CheckAllNowWorker(QThread):
                             filtered_status = '\n'.join(filtered_lines)
                             send = True
                     if not send:
-                        self.log_signal.emit(f"No matching changes for '{name}' [{branch}].")
+                        msg = f"No matching changes for '{name}' [{branch}]."
+                        print(msg)
+                        self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
                         continue
                     for wh in webhooks:
-                        msg = MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)
-                        self.log_signal.emit(f"[Check Now] Sending {self.fmt} report to {wh['webhook']} for '{name}' [{branch}]...")
+                        if self._should_stop:
+                            self.log_signal.emit('[DEBUG] Worker stop flag set, exiting webhook loop.')
+                            break
+                        msg = f"[Check Now] Sending {self.fmt} report to {wh.get('webhook','')} for '{name}' [{branch}]..."
+                        print(msg)
+                        self.log_signal.emit(msg)
                         try:
-                            client = DiscordClient(wh['webhook'])
-                            if client.send_message(msg):
-                                self.log_signal.emit(f"[OK] Report sent to {wh['webhook']} for '{name}' [{branch}].")
+                            client = DiscordClient(wh.get('webhook',''))
+                            if client.send_message(MonitorWorker.format_message(self.fmt, f"{name} [{branch}]", filtered_status or status, filtered_commits or commits, branch, wh.get('template', ''), path)):
+                                okmsg = f"[OK] Report sent to {wh.get('webhook','')} for '{name}' [{branch}]."
+                                print(okmsg)
+                                self.log_signal.emit(okmsg)
                             else:
-                                self.log_signal.emit(f"[ERROR] Failed to send report to {wh['webhook']} for '{name}' [{branch}].")
+                                errmsg = f"[ERROR] Failed to send report to {wh.get('webhook','')} for '{name}' [{branch}]."
+                                print(errmsg)
+                                self.log_signal.emit(errmsg)
                         except Exception as e:
-                            self.log_signal.emit(f"[ERROR] Exception sending to Discord: {e}")
+                            errmsg = f"[ERROR] Exception sending to Discord: {e}"
+                            print(errmsg)
+                            self.log_signal.emit(errmsg)
                     count += 1
                     self.progress_signal.emit(count)
+            print('[DEBUG] Exiting CheckAllNowWorker.run')
+            self.log_signal.emit('[DEBUG] Exiting CheckAllNowWorker.run')
         except Exception as e:
-            import traceback
             tb = traceback.format_exc()
-            self.log_signal.emit(f"[FATAL ERROR] Exception in CheckAllNowWorker: {e}\n{tb}")
+            msg = f"[FATAL ERROR] Exception in CheckAllNowWorker: {e}\n{tb}"
+            print(msg)
+            self.log_signal.emit(msg)
         finally:
             self.done_signal.emit()
 
@@ -1314,10 +1352,11 @@ class MainWindow(QMainWindow):
         # Ensure any running worker thread is stopped and waited for
         if hasattr(self, 'worker') and self.worker is not None:
             try:
-                self.worker.quit()
+                self.worker.stop()
                 self.worker.wait()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f'[ERROR] Exception while stopping worker: {e}')
+            self.worker = None
         self.save_all()  # Ensure all data is saved before exit
         event.accept()
 
@@ -1381,20 +1420,56 @@ class MainWindow(QMainWindow):
             self.worker.start()
 
     def check_all_now(self):
-        self.check_now_btn.setEnabled(False)
-        self.check_now_btn.setText('Checking...')
-        fmt = self.check_format_combo.currentText()
-        total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
-        self.worker = CheckAllNowWorker(self.projects, fmt)
-        def on_log(msg):
-            self.append_log(msg)
-        def on_done():
+        try:
+            print('[DEBUG] Entered check_all_now')
+            self.append_log('[DEBUG] Entered check_all_now')
+            # Validate all project data before starting worker
+            for p in self.projects:
+                if not p.get('name') or not p.get('path') or not isinstance(p.get('webhooks', []), list):
+                    msg = f"[ERROR] Invalid project data: {p}"
+                    print(msg)
+                    self.append_log(msg)
+                    self.check_now_btn.setEnabled(True)
+                    self.check_now_btn.setText('Check All Now')
+                    return
+            self.check_now_btn.setEnabled(False)
+            self.check_now_btn.setText('Checking...')
+            fmt = self.check_format_combo.currentText()
+            total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
+            self.worker = CheckAllNowWorker(self.projects, fmt)
+            def on_log(msg):
+                try:
+                    if not self.isVisible():
+                        return
+                    print('[WORKER LOG]', msg)
+                    self.append_log(msg)
+                except Exception as e:
+                    print(f'[ERROR] Exception in on_log: {e}')
+            def on_done():
+                try:
+                    if not self.isVisible():
+                        return
+                    print('[DEBUG] CheckAllNowWorker done')
+                    self.append_log('[DEBUG] CheckAllNowWorker done')
+                    self.check_now_btn.setEnabled(True)
+                    self.check_now_btn.setText('Check All Now')
+                    self.append_log('Check All Now complete.')
+                    self.worker = None
+                except Exception as e:
+                    print(f'[ERROR] Exception in on_done: {e}')
+            self.worker.log_signal.connect(on_log)
+            self.worker.done_signal.connect(on_done)
+            print('[DEBUG] Starting CheckAllNowWorker')
+            self.append_log('[DEBUG] Starting CheckAllNowWorker')
+            self.worker.start()
+            print('[DEBUG] CheckAllNowWorker started')
+            self.append_log('[DEBUG] CheckAllNowWorker started')
+        except Exception as e:
+            tb = traceback.format_exc()
+            print(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
+            self.append_log(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
             self.check_now_btn.setEnabled(True)
             self.check_now_btn.setText('Check All Now')
-            self.append_log('Check All Now complete.')
-        self.worker.log_signal.connect(on_log)
-        self.worker.done_signal.connect(on_done)
-        self.worker.start()
 
     def test_all_status(self):
         self.test_all_btn.setEnabled(False)
