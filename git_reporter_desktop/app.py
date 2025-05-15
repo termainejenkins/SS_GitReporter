@@ -910,7 +910,24 @@ class MainWindow(QMainWindow):
         self.project_list.clear()
         for proj in self.projects:
             wh_count = len(proj.get('webhooks', []))
-            self.project_list.addItem(f"{proj['name']} ({wh_count} webhook{'s' if wh_count != 1 else ''})")
+            name = proj.get('name', 'Unknown')
+            status_emoji = ''
+            tooltip = ''
+            if hasattr(self, 'project_statuses') and name in self.project_statuses:
+                status = self.project_statuses[name]
+                if not status['repo']:
+                    status_emoji = '🔴'
+                elif all(status['webhooks']):
+                    status_emoji = '🟢'
+                elif any(status['webhooks']):
+                    status_emoji = '🟡'
+                else:
+                    status_emoji = '🔴'
+                tooltip = '\n'.join(status['details']) if status['details'] else 'All OK'
+            item = QListWidgetItem(f"{status_emoji} {name} ({wh_count} webhook{'s' if wh_count != 1 else ''})")
+            if tooltip:
+                item.setToolTip(tooltip)
+            self.project_list.addItem(item)
 
     def save_config(self):
         try:

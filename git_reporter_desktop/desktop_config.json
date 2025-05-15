@@ -80,6 +80,8 @@
     "start_with_windows": false,
     "schedules": [],
     "master_frequency": 3,
-    "auto_start_monitoring": true
+    "auto_start_monitoring": true,
+    "always_on_top": false,
+    "dark_mode": true
   }
 }
