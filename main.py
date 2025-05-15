@@ -39,6 +39,24 @@ def main():
         config = ConfigManager().config
         validate_config(config)
         
+        # Show log if requested
+        if config.get('start_with_log_open', False):
+            log_path = 'logs/reporter.log'
+            if os.path.exists(log_path):
+                print("\n--- Reporter Log (last 20 lines) ---")
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for line in lines[-20:]:
+                        print(line.rstrip())
+                print("--- End of Log ---\n")
+            else:
+                print("Log file does not exist yet.")
+
+        # Respect auto_start_monitoring
+        if not config.get('auto_start_monitoring', True):
+            print("Auto start monitoring is disabled. Exiting.")
+            return
+        
         # Initialize components with error handling
         try:
             monitor = GitMonitor(

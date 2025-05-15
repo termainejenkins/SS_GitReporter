@@ -62,6 +62,8 @@ SENTIENT SOLUTIONS LLC
 2. Install dependencies: `py -m pip install -r requirements.txt`
 3. Configure `config.json` with your:
    - UE4 project path
+   - (Optional) `auto_start_monitoring`: true/false (default: true)
+   - (Optional) `start_with_log_open`: true/false (default: false)
 4. Create a `.env` file in the project root with the following content:
    
    ```env

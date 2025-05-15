@@ -6,5 +6,7 @@
         "*.uasset",
         "Saved/*",
         "Intermediate/*"
-    ]
+    ],
+    "auto_start_monitoring": true,
+    "start_with_log_open": false
 } 
