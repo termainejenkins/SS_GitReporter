@@ -17,6 +17,9 @@ import threading
 import datetime
 import subprocess
 import re
+from git_reporter.config_utils import (
+    atomic_save_json, backup_config, load_config_with_recovery, CURRENT_CONFIG_VERSION, config_lock
+)
 
 # Import GitMonitor and DiscordClient from the CLI codebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -48,6 +51,20 @@ def get_config_path():
     os.makedirs(config_dir, exist_ok=True)
     return os.path.join(config_dir, 'desktop_config.json')
 
+DEFAULT_CONFIG = {
+    "version": CURRENT_CONFIG_VERSION,
+    "projects": [],
+    "settings": {
+        "start_with_windows": False,
+        "schedules": [],
+        "master_frequency": 1,
+        "auto_start_monitoring": True,
+        "always_on_top": False,
+        "dark_mode": False,
+        "start_with_log_open": False
+    }
+}
+
 CONFIG_FILE = get_config_path()
 LOG_FILE = os.path.join(os.path.dirname(CONFIG_FILE), 'app.log')
 
@@ -70,25 +87,21 @@ else:
 # Unified load/save for both projects and settings
 def load_all():
     logging.info(f"Loading config from {CONFIG_FILE}")
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                logging.info("Config loaded successfully.")
-                return data.get('projects', []), data.get('settings', {})
-        except Exception as e:
-            logging.error(f"Error loading config: {e}")
-    else:
-        logging.warning(f"Config file does not exist: {CONFIG_FILE}")
-    return [], {}
+    with config_lock:
+        data = load_config_with_recovery(CONFIG_FILE, DEFAULT_CONFIG)
+    logging.info("Config loaded successfully.")
+    return data.get('projects', []), data.get('settings', {})
 
 def save_all(projects, settings):
-    try:
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'projects': projects, 'settings': settings}, f, indent=2)
-        logging.info(f"Config saved to {CONFIG_FILE}")
-    except Exception as e:
-        logging.error(f"Error saving config: {e}")
+    with config_lock:
+        backup_config(CONFIG_FILE)
+        data = {
+            'version': CURRENT_CONFIG_VERSION,
+            'projects': projects,
+            'settings': settings
+        }
+        atomic_save_json(CONFIG_FILE, data)
+    logging.info(f"Config saved to {CONFIG_FILE}")
 
 MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurable)
 
