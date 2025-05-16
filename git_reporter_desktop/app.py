@@ -1548,6 +1548,8 @@ class MainWindow(QMainWindow):
             self.check_now_cancel_btn.setVisible(True)
             fmt = self.check_format_combo.currentText()
             self.worker = CheckAllNowWorker(self.projects, fmt)
+            self.worker.setParent(None)
+            from PyQt5.QtCore import Qt
             def on_log(msg):
                 try:
                     if not self.isVisible():
@@ -1566,6 +1568,20 @@ class MainWindow(QMainWindow):
                     self.append_log('Check All Now complete.')
                     if use_inline:
                         self.reset_all_project_progress()
+                    # Disconnect signals before cleanup
+                    try:
+                        self.worker.log_signal.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.worker.done_signal.disconnect()
+                    except Exception:
+                        pass
+                    if use_inline:
+                        try:
+                            self.worker.per_project_progress_signal.disconnect()
+                        except Exception:
+                            pass
                     # Robust cleanup: only wait if running, then set to None
                     if self.worker is not None:
                         if self.worker.isRunning():
@@ -1573,10 +1589,10 @@ class MainWindow(QMainWindow):
                         self.worker = None
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
-            self.worker.log_signal.connect(on_log)
-            self.worker.done_signal.connect(on_done)
+            self.worker.log_signal.connect(on_log, Qt.QueuedConnection)
+            self.worker.done_signal.connect(on_done, Qt.QueuedConnection)
             if use_inline:
-                self.worker.per_project_progress_signal.connect(self.update_project_progress)
+                self.worker.per_project_progress_signal.connect(self.update_project_progress, Qt.QueuedConnection)
             self.worker.start()
         except Exception as e:
             tb = traceback.format_exc()
