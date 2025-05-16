@@ -1162,22 +1162,6 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(check_layout)
         self.check_now_btn.clicked.connect(self.check_all_now)
 
-        # Add inline progress bars for each action
-        self.check_now_progress = QProgressBar()
-        self.check_now_progress.setVisible(False)
-        self.test_all_progress = QProgressBar()
-        self.test_all_progress.setVisible(False)
-        self.import_progress = QProgressBar()
-        self.import_progress.setVisible(False)
-        self.export_progress = QProgressBar()
-        self.export_progress.setVisible(False)
-        # Place progress bars below their respective buttons
-        main_layout.insertWidget(main_layout.indexOf(self.check_now_btn) + 1, self.check_now_progress)
-        main_layout.insertWidget(main_layout.indexOf(self.test_all_btn) + 1, self.test_all_progress)
-        # For import/export, place below menu or at bottom
-        main_layout.addWidget(self.import_progress)
-        main_layout.addWidget(self.export_progress)
-
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
 
@@ -1475,6 +1459,22 @@ class MainWindow(QMainWindow):
             self.worker.result_signal.connect(on_result)
             self.worker.start()
 
+    def reset_all_project_progress(self):
+        for widget in self.project_item_widgets.values():
+            widget.progress.setVisible(False)
+            widget.progress.setValue(0)
+
+    def update_project_progress(self, name, current, total):
+        if not self.settings.get('show_inline_progress_bars', True):
+            return
+        widget = self.project_item_widgets.get(name)
+        if widget:
+            widget.progress.setVisible(True)
+            widget.progress.setMaximum(total)
+            widget.progress.setValue(current)
+            if current >= total:
+                widget.progress.setVisible(False)
+
     def check_all_now(self):
         try:
             print('[DEBUG] Entered check_all_now')
@@ -1490,10 +1490,7 @@ class MainWindow(QMainWindow):
                     return
             use_inline = self.settings.get('show_inline_progress_bars', True)
             if use_inline:
-                self.check_now_progress.setVisible(True)
-                total = sum(len((p.get('branches', []) or [''])) for p in self.projects)
-                self.check_now_progress.setRange(0, total)
-                self.check_now_progress.setValue(0)
+                self.reset_all_project_progress()
             self.check_now_btn.setEnabled(False)
             self.check_now_btn.setText('Checking...')
             fmt = self.check_format_combo.currentText()
@@ -1513,14 +1510,14 @@ class MainWindow(QMainWindow):
                     self.check_now_btn.setText('Check All Now')
                     self.append_log('Check All Now complete.')
                     if use_inline:
-                        self.check_now_progress.setVisible(False)
+                        self.reset_all_project_progress()
                     self.worker = None
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
             self.worker.log_signal.connect(on_log)
             self.worker.done_signal.connect(on_done)
             if use_inline:
-                self.worker.progress_signal.connect(self.check_now_progress.setValue)
+                self.worker.per_project_progress_signal.connect(self.update_project_progress)
             self.worker.start()
         except Exception as e:
             tb = traceback.format_exc()
@@ -1531,9 +1528,7 @@ class MainWindow(QMainWindow):
     def test_all_status(self):
         use_inline = self.settings.get('show_inline_progress_bars', True)
         if use_inline:
-            self.test_all_progress.setVisible(True)
-            self.test_all_progress.setRange(0, len(self.projects))
-            self.test_all_progress.setValue(0)
+            self.reset_all_project_progress()
         self.test_all_btn.setEnabled(False)
         self.test_all_btn.setText('Testing...')
         self.worker = TestAllStatusWorker(self.projects)
@@ -1545,12 +1540,12 @@ class MainWindow(QMainWindow):
             self.test_all_btn.setText('Test All')
             self.append_log('Test All complete.')
             if use_inline:
-                self.test_all_progress.setVisible(False)
+                self.reset_all_project_progress()
             self.worker = None
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
         if use_inline:
-            self.worker.progress_signal.connect(self.test_all_progress.setValue)
+            self.worker.per_project_progress_signal.connect(self.update_project_progress)
         self.worker.start()
 
     def test_selected_project(self):
@@ -1561,13 +1556,9 @@ class MainWindow(QMainWindow):
         project = self.projects[row]
         self.project_test_btn.setEnabled(False)
         self.project_test_btn.setText('Testing...')
-        self.progress_dialog = QProgressDialog('Testing selected project...', 'Cancel', 0, 1, self)
-        self.progress_dialog.setWindowTitle('Testing Project')
-        self.progress_dialog.setWindowModality(Qt.ApplicationModal)
-        self.progress_dialog.setValue(0)
-        self.progress_dialog.setMinimumDuration(0)
-        self.progress_dialog.setAutoClose(True)
-        self.progress_dialog.setAutoReset(True)
+        use_inline = self.settings.get('show_inline_progress_bars', True)
+        if use_inline:
+            self.reset_all_project_progress()
         self.worker = TestSelectedProjectWorker(project)
         def on_status(name, status):
             if not hasattr(self, 'project_statuses'):
@@ -1578,10 +1569,13 @@ class MainWindow(QMainWindow):
             self.project_test_btn.setEnabled(True)
             self.project_test_btn.setText('Test Selected')
             self.append_log('Test Selected complete.')
-            self.progress_dialog.setValue(1)
-            self.progress_dialog.close()
+            if use_inline:
+                self.reset_all_project_progress()
+            self.worker = None
         self.worker.status_signal.connect(on_status)
         self.worker.done_signal.connect(on_done)
+        if use_inline:
+            self.worker.per_project_progress_signal.connect(self.update_project_progress)
         self.worker.start()
 
     def set_always_on_top(self, checked):
