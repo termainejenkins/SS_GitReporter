@@ -1113,6 +1113,7 @@ class ExportDataWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        print(f"[DEBUG] MainWindow __init__ called, id: {id(self)}")
         print(f"[DEBUG] MainWindow instance created: {id(self)}")
         self.monitor_status_label = QLabel()
         self.status_bar = self.statusBar()
@@ -1185,7 +1186,10 @@ class MainWindow(QMainWindow):
         check_layout.addWidget(self.check_now_btn)
         check_layout.addWidget(self.check_now_cancel_btn)
         main_layout.addLayout(check_layout)
+        # --- SIGNAL RECEIVER DEBUG ---
+        print(f"[DEBUG] (init) check_now_btn signal receivers before connect: {self.check_now_btn.receivers(self.check_now_btn.clicked)}")
         self.check_now_btn.clicked.connect(self.check_all_now)
+        print(f"[DEBUG] (init) check_now_btn signal receivers after connect: {self.check_now_btn.receivers(self.check_now_btn.clicked)}")
         self.check_now_cancel_btn.clicked.connect(self.cancel_check_all_now)
 
         # Placeholder for webhook management and logs
