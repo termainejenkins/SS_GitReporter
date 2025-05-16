@@ -1118,6 +1118,7 @@ class MainWindow(QMainWindow):
         self.update_monitor_status(False)
         self.projects_lock = threading.Lock()
         self.settings_lock = threading.Lock()
+        self.check_worker = None
         with self.projects_lock, self.settings_lock:
             self.projects, self.settings = load_all()
         self.setWindowTitle('UE4 Git Reporter Desktop')
@@ -1526,7 +1527,7 @@ class MainWindow(QMainWindow):
     def check_all_now(self):
         try:
             # Prevent double-start
-            if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
+            if self.check_worker is not None and self.check_worker.isRunning():
                 QMessageBox.warning(self, 'Check All Now', 'A check is already running.')
                 return
             print('[DEBUG] Entered check_all_now')
@@ -1548,8 +1549,8 @@ class MainWindow(QMainWindow):
             self.check_now_cancel_btn.setEnabled(True)
             self.check_now_cancel_btn.setVisible(True)
             fmt = self.check_format_combo.currentText()
-            self.worker = CheckAllNowWorker(self.projects, fmt)
-            self.worker.setParent(None)
+            self.check_worker = CheckAllNowWorker(self.projects, fmt)
+            self.check_worker.setParent(None)
             from PyQt5.QtCore import Qt
             def on_log(msg):
                 try:
@@ -1571,30 +1572,30 @@ class MainWindow(QMainWindow):
                         self.reset_all_project_progress()
                     # Disconnect signals before cleanup
                     try:
-                        self.worker.log_signal.disconnect()
+                        self.check_worker.log_signal.disconnect()
                     except Exception:
                         pass
                     try:
-                        self.worker.done_signal.disconnect()
+                        self.check_worker.done_signal.disconnect()
                     except Exception:
                         pass
                     if use_inline:
                         try:
-                            self.worker.per_project_progress_signal.disconnect()
+                            self.check_worker.per_project_progress_signal.disconnect()
                         except Exception:
                             pass
                     # Robust cleanup: only wait if running, then set to None
-                    if self.worker is not None:
-                        if self.worker.isRunning():
-                            self.worker.wait()
-                        self.worker = None
+                    if self.check_worker is not None:
+                        if self.check_worker.isRunning():
+                            self.check_worker.wait()
+                        self.check_worker = None
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
-            self.worker.log_signal.connect(on_log, Qt.QueuedConnection)
-            self.worker.done_signal.connect(on_done, Qt.QueuedConnection)
+            self.check_worker.log_signal.connect(on_log, Qt.QueuedConnection)
+            self.check_worker.done_signal.connect(on_done, Qt.QueuedConnection)
             if use_inline:
-                self.worker.per_project_progress_signal.connect(self.update_project_progress, Qt.QueuedConnection)
-            self.worker.start()
+                self.check_worker.per_project_progress_signal.connect(self.update_project_progress, Qt.QueuedConnection)
+            self.check_worker.start()
         except Exception as e:
             tb = traceback.format_exc()
             self.append_log(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
@@ -1602,12 +1603,14 @@ class MainWindow(QMainWindow):
             self.check_now_btn.setText('Check All Now')
             self.check_now_cancel_btn.setEnabled(False)
             self.check_now_cancel_btn.setVisible(False)
+            self.check_worker = None
 
     def cancel_check_all_now(self):
-        if hasattr(self, 'worker') and self.worker is not None:
-            self.worker.stop()
+        if self.check_worker is not None:
+            self.check_worker.stop()
             self.check_now_cancel_btn.setEnabled(False)
             self.append_log('Check All Now cancelled by user.')
+            self.check_worker = None
 
     def test_all_status(self):
         use_inline = self.settings.get('show_inline_progress_bars', True)
