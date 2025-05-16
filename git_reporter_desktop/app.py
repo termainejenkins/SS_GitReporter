@@ -530,6 +530,7 @@ class CheckAllNowWorker(QThread):
             print(msg)
             self.log_signal.emit(msg)
         finally:
+            print('[DEBUG] Emitting done_signal from CheckAllNowWorker')
             self.done_signal.emit()
 
 class WebhookDialog(QDialog):
@@ -1112,6 +1113,7 @@ class ExportDataWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        print(f"[DEBUG] MainWindow instance created: {id(self)}")
         self.monitor_status_label = QLabel()
         self.status_bar = self.statusBar()
         self.status_bar.addPermanentWidget(self.monitor_status_label)
@@ -1525,9 +1527,13 @@ class MainWindow(QMainWindow):
                 widget.progress.setVisible(False)
 
     def check_all_now(self):
+        print(f"[DEBUG] (check_all_now) MainWindow id: {id(self)} - method entered")
         try:
+            # Debug: print worker state before guard
+            print(f"[DEBUG] (check_all_now) check_worker is {self.check_worker}, isRunning: {self.check_worker.isRunning() if self.check_worker else 'None'}")
             # Prevent double-start
             if self.check_worker is not None and self.check_worker.isRunning():
+                print(f"[DEBUG] (check_all_now) Guard triggered: check_worker is running!")
                 QMessageBox.warning(self, 'Check All Now', 'A check is already running.')
                 return
             print('[DEBUG] Entered check_all_now')
@@ -1561,6 +1567,7 @@ class MainWindow(QMainWindow):
                     print(f'[ERROR] Exception in on_log: {e}')
             def on_done():
                 try:
+                    print(f"[DEBUG] (on_done) check_worker is {self.check_worker}, isRunning: {self.check_worker.isRunning() if self.check_worker else 'None'} (start)")
                     if not self.isVisible():
                         return
                     self.check_now_btn.setEnabled(True)
@@ -1588,7 +1595,9 @@ class MainWindow(QMainWindow):
                     if self.check_worker is not None:
                         if self.check_worker.isRunning():
                             self.check_worker.wait()
+                        print(f"[DEBUG] (on_done) Setting check_worker to None")
                         self.check_worker = None
+                    print(f"[DEBUG] (on_done) check_worker is {self.check_worker} (end)")
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
             self.check_worker.log_signal.connect(on_log, Qt.QueuedConnection)
@@ -1606,10 +1615,12 @@ class MainWindow(QMainWindow):
             self.check_worker = None
 
     def cancel_check_all_now(self):
+        print(f"[DEBUG] (cancel_check_all_now) check_worker is {self.check_worker}, isRunning: {self.check_worker.isRunning() if self.check_worker else 'None'}")
         if self.check_worker is not None:
             self.check_worker.stop()
             self.check_now_cancel_btn.setEnabled(False)
             self.append_log('Check All Now cancelled by user.')
+            print(f"[DEBUG] (cancel_check_all_now) Setting check_worker to None")
             self.check_worker = None
 
     def test_all_status(self):
