@@ -391,6 +391,7 @@ class CheckAllNowWorker(QThread):
     log_signal = pyqtSignal(str)
     done_signal = pyqtSignal()
     progress_signal = pyqtSignal(int)
+    per_project_progress_signal = pyqtSignal(str, int, int)  # name, current, total
     def __init__(self, projects, fmt):
         super().__init__()
         self.projects = projects
@@ -421,6 +422,7 @@ class CheckAllNowWorker(QThread):
                     self.log_signal.emit(msg)
                     count += len(branches)
                     self.progress_signal.emit(count)
+                    self.per_project_progress_signal.emit(name, count, total)
                     continue
                 if not os.path.exists(path):
                     msg = f"[ERROR] Project path does not exist: {path}"
@@ -428,6 +430,7 @@ class CheckAllNowWorker(QThread):
                     self.log_signal.emit(msg)
                     count += len(branches)
                     self.progress_signal.emit(count)
+                    self.per_project_progress_signal.emit(name, count, total)
                     continue
                 for branch in branches:
                     if self._should_stop:
@@ -443,6 +446,7 @@ class CheckAllNowWorker(QThread):
                         self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
+                        self.per_project_progress_signal.emit(name, count, total)
                         continue
                     latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
                     if not latest_commit:
@@ -451,6 +455,7 @@ class CheckAllNowWorker(QThread):
                         self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
+                        self.per_project_progress_signal.emit(name, count, total)
                         continue
                     status, commits = monitor.get_changes()
                     send = False
@@ -480,6 +485,7 @@ class CheckAllNowWorker(QThread):
                         self.log_signal.emit(msg)
                         count += 1
                         self.progress_signal.emit(count)
+                        self.per_project_progress_signal.emit(name, count, total)
                         continue
                     for wh in webhooks:
                         if self._should_stop:
@@ -504,6 +510,7 @@ class CheckAllNowWorker(QThread):
                             self.log_signal.emit(errmsg)
                     count += 1
                     self.progress_signal.emit(count)
+                    self.per_project_progress_signal.emit(name, count, total)
             print('[DEBUG] Exiting CheckAllNowWorker.run')
             self.log_signal.emit('[DEBUG] Exiting CheckAllNowWorker.run')
         except Exception as e:
@@ -686,6 +693,22 @@ class WebhookDialog(QDialog):
             self.template_edit.setPlainText(template)
         else:
             cursor.insertText(summary)
+
+class ProjectListItemWidget(QWidget):
+    def __init__(self, name, wh_count, status_emoji='', tooltip='', parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        self.label = QLabel(f"{status_emoji} {name} ({wh_count} webhook{'s' if wh_count != 1 else ''})")
+        layout.addWidget(self.label)
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        self.progress.setMaximumHeight(12)
+        self.progress.setTextVisible(False)
+        layout.addWidget(self.progress)
+        layout.setContentsMargins(0, 0, 0, 0)
+        if tooltip:
+            self.setToolTip(tooltip)
+        self.setLayout(layout)
 
 class ProjectDialog(QDialog):
     def __init__(self, parent=None, project=None):
@@ -977,12 +1000,14 @@ class TestAllStatusWorker(QThread):
     status_signal = pyqtSignal(dict)
     done_signal = pyqtSignal()
     progress_signal = pyqtSignal(int)
+    per_project_progress_signal = pyqtSignal(str, int, int)  # name, current, total
     def __init__(self, projects):
         super().__init__()
         self.projects = projects
     def run(self):
         from PyQt5.QtWidgets import QListWidgetItem
         project_statuses = {}
+        total = len(self.projects)
         for idx, project in enumerate(self.projects):
             name = project.get('name', 'Unknown')
             path = project.get('path', '')
@@ -1006,12 +1031,14 @@ class TestAllStatusWorker(QThread):
             project_statuses[name] = status
             self.status_signal.emit(project_statuses)
             self.progress_signal.emit(idx + 1)
+            self.per_project_progress_signal.emit(name, idx + 1, total)
         self.status_signal.emit(project_statuses)
         self.done_signal.emit()
 
 class TestSelectedProjectWorker(QThread):
     status_signal = pyqtSignal(str, dict)
     done_signal = pyqtSignal()
+    per_project_progress_signal = pyqtSignal(str, int, int)  # name, current, total
     def __init__(self, project):
         super().__init__()
         self.project = project
@@ -1020,6 +1047,7 @@ class TestSelectedProjectWorker(QThread):
         path = self.project.get('path', '')
         webhooks = self.project.get('webhooks', [])
         status = {'repo': False, 'webhooks': [], 'details': []}
+        total = 1
         if os.path.isdir(path) and os.path.isdir(os.path.join(path, '.git')):
             status['repo'] = True
         else:
@@ -1036,6 +1064,7 @@ class TestSelectedProjectWorker(QThread):
                 status['webhooks'].append(False)
                 status['details'].append(f"Webhook error: {url} ({e})")
         self.status_signal.emit(name, status)
+        self.per_project_progress_signal.emit(name, 1, total)
         self.done_signal.emit()
 
 class ImportDataWorker(QThread):
@@ -1226,6 +1255,7 @@ class MainWindow(QMainWindow):
         self.schedule_timer_stop = threading.Event()
         self.schedule_timer.start()
 
+        self.project_item_widgets = {}  # key: project name, value: ProjectListItemWidget
         self.refresh_project_list()
 
         # Show log viewer if requested
@@ -1276,7 +1306,8 @@ class MainWindow(QMainWindow):
 
     def refresh_project_list(self):
         self.project_list.clear()
-        for proj in self.projects:
+        self.project_item_widgets = {}
+        for idx, proj in enumerate(self.projects):
             wh_count = len(proj.get('webhooks', []))
             name = proj.get('name', 'Unknown')
             status_emoji = ''
@@ -1292,10 +1323,12 @@ class MainWindow(QMainWindow):
                 else:
                     status_emoji = '🔴'
                 tooltip = '\n'.join(status['details']) if status['details'] else 'All OK'
-            item = QListWidgetItem(f"{status_emoji} {name} ({wh_count} webhook{'s' if wh_count != 1 else ''})")
-            if tooltip:
-                item.setToolTip(tooltip)
+            widget = ProjectListItemWidget(name, wh_count, status_emoji, tooltip)
+            item = QListWidgetItem(self.project_list)
+            item.setSizeHint(widget.sizeHint())
             self.project_list.addItem(item)
+            self.project_list.setItemWidget(item, widget)
+            self.project_item_widgets[name] = widget
 
     def save_all(self):
         save_all(self.projects, self.settings)
