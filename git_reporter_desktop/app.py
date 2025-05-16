@@ -1101,6 +1101,10 @@ class ExportDataWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.monitor_status_label = QLabel()
+        self.status_bar = self.statusBar()
+        self.status_bar.addPermanentWidget(self.monitor_status_label)
+        self.update_monitor_status(False)
         self.projects_lock = threading.Lock()
         self.settings_lock = threading.Lock()
         with self.projects_lock, self.settings_lock:
@@ -1179,10 +1183,6 @@ class MainWindow(QMainWindow):
         self.log_viewer.hide()
         main_layout.addWidget(self.log_viewer)
 
-        # Status bar
-        self.status_bar = self.statusBar()
-        self.status_bar.showMessage('Ready')
-
         # Menu bar
         menubar = self.menuBar()
         file_menu = menubar.addMenu('File')
@@ -1257,11 +1257,6 @@ class MainWindow(QMainWindow):
         # Auto start monitoring if requested
         if self.settings.get('auto_start_monitoring', True):
             self.start_monitoring()
-
-        self.monitor_status_label = QLabel()
-        self.status_bar = self.statusBar()
-        self.status_bar.addPermanentWidget(self.monitor_status_label)
-        self.update_monitor_status(False)
 
     def refresh_project_list(self):
         self.project_list.clear()
