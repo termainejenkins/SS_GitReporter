@@ -1258,6 +1258,11 @@ class MainWindow(QMainWindow):
         if self.settings.get('auto_start_monitoring', True):
             self.start_monitoring()
 
+        self.monitor_status_label = QLabel()
+        self.status_bar = self.statusBar()
+        self.status_bar.addPermanentWidget(self.monitor_status_label)
+        self.update_monitor_status(False)
+
     def refresh_project_list(self):
         self.project_list.clear()
         self.project_item_widgets = {}
@@ -1354,11 +1359,13 @@ class MainWindow(QMainWindow):
             self.monitor_thread = MonitorWorker(self.projects, monitor_interval=self.monitor_interval)
             self.monitor_thread.log_signal.connect(self.append_log)
             self.monitor_thread.status_signal.connect(self.status_bar.showMessage)
+            self.monitor_thread.finished.connect(lambda: self.update_monitor_status(False))
             self.monitor_thread.start()
         self.start_monitor_btn.setEnabled(False)
         self.stop_monitor_btn.setEnabled(True)
         self.status_bar.showMessage('Monitoring started.', 3000)
         self.append_log('Monitoring started.')
+        self.update_monitor_status(True)
 
     def stop_monitoring(self):
         with self.monitor_lock:
@@ -1370,6 +1377,7 @@ class MainWindow(QMainWindow):
             self.start_monitor_btn.setEnabled(True)
             self.stop_monitor_btn.setEnabled(False)
             self.monitor_thread = None
+        self.update_monitor_status(False)
 
     def open_settings_dialog(self):
         with self.settings_lock:
@@ -1420,6 +1428,7 @@ class MainWindow(QMainWindow):
                 self.monitor_thread.stop()
                 self.monitor_thread.wait()
             self.monitor_thread = None
+        self.update_monitor_status(False)
         # Ensure any running worker thread is stopped and waited for
         if hasattr(self, 'worker') and self.worker is not None:
             try:
@@ -1656,6 +1665,12 @@ class MainWindow(QMainWindow):
     def project_item_clicked(self, item):
         # Optionally, could auto-select the project for testing
         pass
+
+    def update_monitor_status(self, running):
+        if running:
+            self.monitor_status_label.setText('<span style="color:green;font-weight:bold;">Monitoring: ON</span>')
+        else:
+            self.monitor_status_label.setText('<span style="color:red;font-weight:bold;">Monitoring: OFF</span>')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
