@@ -1527,7 +1527,22 @@ class MainWindow(QMainWindow):
                 widget.progress.setVisible(False)
 
     def check_all_now(self):
+        import traceback
+        print('[DEBUG] (check_all_now) STACK TRACE:')
+        print(''.join(traceback.format_stack()))
         print(f"[DEBUG] (check_all_now) MainWindow id: {id(self)} - method entered")
+        # --- ADDED DEBUG ---
+        print(f"[DEBUG] (check_all_now) [START] MainWindow id: {id(self)}")
+        print(f"[DEBUG] (check_all_now) [START] self.check_worker initial: {self.check_worker}")
+        print(f"[DEBUG] (check_all_now) [START] type(self.check_worker): {type(self.check_worker)}")
+        if self.check_worker is not None:
+            try:
+                print(f"[DEBUG] (check_all_now) [START] self.check_worker.isRunning(): {self.check_worker.isRunning()}")
+            except Exception as e:
+                print(f"[DEBUG] (check_all_now) [START] Exception calling isRunning(): {e}")
+        else:
+            print(f"[DEBUG] (check_all_now) [START] self.check_worker is None, skipping isRunning() check.")
+        # --- END ADDED DEBUG ---
         try:
             # Debug: print worker state before guard
             print(f"[DEBUG] (check_all_now) check_worker is {self.check_worker}, isRunning: {self.check_worker.isRunning() if self.check_worker else 'None'}")
