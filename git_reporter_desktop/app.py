@@ -1159,11 +1159,16 @@ class MainWindow(QMainWindow):
         self.check_format_combo = QComboBox()
         self.check_format_combo.addItems(MESSAGE_FORMATS)
         self.check_now_btn = QPushButton('Check All Now')
+        self.check_now_cancel_btn = QPushButton('Cancel')
+        self.check_now_cancel_btn.setEnabled(False)
+        self.check_now_cancel_btn.setVisible(False)
         check_layout.addWidget(QLabel('Format:'))
         check_layout.addWidget(self.check_format_combo)
         check_layout.addWidget(self.check_now_btn)
+        check_layout.addWidget(self.check_now_cancel_btn)
         main_layout.addLayout(check_layout)
         self.check_now_btn.clicked.connect(self.check_all_now)
+        self.check_now_cancel_btn.clicked.connect(self.cancel_check_all_now)
 
         # Placeholder for webhook management and logs
         main_layout.addWidget(QLabel('Webhooks and Logs (coming soon)'))
@@ -1521,6 +1526,8 @@ class MainWindow(QMainWindow):
                 self.reset_all_project_progress()
             self.check_now_btn.setEnabled(False)
             self.check_now_btn.setText('Checking...')
+            self.check_now_cancel_btn.setEnabled(True)
+            self.check_now_cancel_btn.setVisible(True)
             fmt = self.check_format_combo.currentText()
             self.worker = CheckAllNowWorker(self.projects, fmt)
             def on_log(msg):
@@ -1536,6 +1543,8 @@ class MainWindow(QMainWindow):
                         return
                     self.check_now_btn.setEnabled(True)
                     self.check_now_btn.setText('Check All Now')
+                    self.check_now_cancel_btn.setEnabled(False)
+                    self.check_now_cancel_btn.setVisible(False)
                     self.append_log('Check All Now complete.')
                     if use_inline:
                         self.reset_all_project_progress()
@@ -1552,6 +1561,14 @@ class MainWindow(QMainWindow):
             self.append_log(f'[FATAL ERROR] Exception in check_all_now: {e}\n{tb}')
             self.check_now_btn.setEnabled(True)
             self.check_now_btn.setText('Check All Now')
+            self.check_now_cancel_btn.setEnabled(False)
+            self.check_now_cancel_btn.setVisible(False)
+
+    def cancel_check_all_now(self):
+        if hasattr(self, 'worker') and self.worker is not None:
+            self.worker.stop()
+            self.check_now_cancel_btn.setEnabled(False)
+            self.append_log('Check All Now cancelled by user.')
 
     def test_all_status(self):
         use_inline = self.settings.get('show_inline_progress_bars', True)
