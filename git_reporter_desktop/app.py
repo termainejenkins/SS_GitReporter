@@ -1101,7 +1101,10 @@ class ExportDataWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.projects, self.settings = load_all()
+        self.projects_lock = threading.Lock()
+        self.settings_lock = threading.Lock()
+        with self.projects_lock, self.settings_lock:
+            self.projects, self.settings = load_all()
         self.setWindowTitle('UE4 Git Reporter Desktop')
         self.setGeometry(100, 100, 800, 500)
         self.setWindowIcon(QIcon(self.style().standardIcon(QStyle.SP_ComputerIcon)))
@@ -1250,49 +1253,12 @@ class MainWindow(QMainWindow):
         if self.settings.get('auto_start_monitoring', True):
             self.start_monitoring()
 
-    def open_add_project_dialog(self):
-        dialog = ProjectDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            data = dialog.get_data()
-            self.projects.append(data)
-            self.save_all()
-            self.refresh_project_list()
-            self.append_log(f"Project '{data['name']}' added with {len(data['webhooks'])} webhook(s).")
-            self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
-
-    def open_edit_project_dialog(self, item=None):
-        from PyQt5.QtWidgets import QListWidgetItem
-        if isinstance(item, QListWidgetItem):
-            row = self.project_list.row(item)
-        else:
-            row = self.project_list.currentRow()
-        if row >= 0:
-            project = self.projects[row]
-            dialog = ProjectDialog(self, project=project)
-            if dialog.exec_() == QDialog.Accepted:
-                self.projects[row] = dialog.get_data()
-                self.save_all()
-                self.refresh_project_list()
-                self.append_log(f"Project '{project['name']}' updated.")
-                self.status_bar.showMessage(f"Project '{project['name']}' updated.", 3000)
-        else:
-            QMessageBox.warning(self, 'Edit Project', 'Please select a project to edit.')
-
-    def remove_selected_project(self):
-        row = self.project_list.currentRow()
-        if row >= 0:
-            removed = self.projects.pop(row)
-            self.save_all()
-            self.refresh_project_list()
-            self.append_log(f"Project '{removed['name']}' removed.")
-            self.status_bar.showMessage(f"Project '{removed['name']}' removed.", 3000)
-        else:
-            QMessageBox.warning(self, 'No Selection', 'Please select a project to remove.')
-
     def refresh_project_list(self):
         self.project_list.clear()
         self.project_item_widgets = {}
-        for idx, proj in enumerate(self.projects):
+        with self.projects_lock:
+            projects_copy = list(self.projects)
+        for idx, proj in enumerate(projects_copy):
             wh_count = len(proj.get('webhooks', []))
             name = proj.get('name', 'Unknown')
             status_emoji = ''
@@ -1315,8 +1281,58 @@ class MainWindow(QMainWindow):
             self.project_list.setItemWidget(item, widget)
             self.project_item_widgets[name] = widget
 
+    def open_add_project_dialog(self):
+        dialog = ProjectDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            data = dialog.get_data()
+            with self.projects_lock:
+                self.projects.append(data)
+            self.save_all()
+            self.refresh_project_list()
+            self.append_log(f"Project '{data['name']}' added with {len(data['webhooks'])} webhook(s).")
+            self.status_bar.showMessage(f"Project '{data['name']}' added.", 3000)
+
+    def open_edit_project_dialog(self, item=None):
+        from PyQt5.QtWidgets import QListWidgetItem
+        if isinstance(item, QListWidgetItem):
+            row = self.project_list.row(item)
+        else:
+            row = self.project_list.currentRow()
+        with self.projects_lock:
+            if row >= 0:
+                project = self.projects[row]
+            else:
+                project = None
+        if project:
+            dialog = ProjectDialog(self, project=project)
+            if dialog.exec_() == QDialog.Accepted:
+                with self.projects_lock:
+                    self.projects[row] = dialog.get_data()
+                self.save_all()
+                self.refresh_project_list()
+                self.append_log(f"Project '{project['name']}' updated.")
+                self.status_bar.showMessage(f"Project '{project['name']}' updated.", 3000)
+        else:
+            QMessageBox.warning(self, 'Edit Project', 'Please select a project to edit.')
+
+    def remove_selected_project(self):
+        row = self.project_list.currentRow()
+        with self.projects_lock:
+            if row >= 0:
+                removed = self.projects.pop(row)
+            else:
+                removed = None
+        if removed:
+            self.save_all()
+            self.refresh_project_list()
+            self.append_log(f"Project '{removed['name']}' removed.")
+            self.status_bar.showMessage(f"Project '{removed['name']}' removed.", 3000)
+        else:
+            QMessageBox.warning(self, 'No Selection', 'Please select a project to remove.')
+
     def save_all(self):
-        save_all(self.projects, self.settings)
+        with self.projects_lock, self.settings_lock:
+            save_all(self.projects, self.settings)
 
     def append_log(self, message):
         self.log_viewer.append(message)
@@ -1351,12 +1367,15 @@ class MainWindow(QMainWindow):
             self.monitor_thread = None
 
     def open_settings_dialog(self):
-        dialog = SettingsDialog(self, settings=self.settings)
+        with self.settings_lock:
+            dialog = SettingsDialog(self, settings=self.settings)
         if dialog.exec_() == QDialog.Accepted:
-            self.settings = dialog.get_settings()
+            with self.settings_lock:
+                self.settings = dialog.get_settings()
             self.save_all()
             self.apply_startup_setting()
-            self.monitor_interval = self.settings.get('master_frequency', 1) * 60
+            with self.settings_lock:
+                self.monitor_interval = self.settings.get('master_frequency', 1) * 60
 
     def apply_startup_setting(self):
         if platform.system() == 'Windows':
@@ -1408,9 +1427,11 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def update_master_frequency(self, value):
-        self.settings['master_frequency'] = value
+        with self.settings_lock:
+            self.settings['master_frequency'] = value
         self.save_all()
-        self.monitor_interval = value * 60
+        with self.settings_lock:
+            self.monitor_interval = value * 60
 
     def export_data(self):
         path, _ = QFileDialog.getSaveFileName(self, 'Export Projects and Webhooks', '', 'JSON Files (*.json)')
