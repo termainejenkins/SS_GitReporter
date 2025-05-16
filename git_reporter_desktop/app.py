@@ -1187,6 +1187,10 @@ class MainWindow(QMainWindow):
         check_layout.addWidget(self.check_now_cancel_btn)
         main_layout.addLayout(check_layout)
         # --- SIGNAL RECEIVER DEBUG ---
+        try:
+            self.check_now_btn.clicked.disconnect()
+        except Exception as e:
+            print(f"[DEBUG] (init) disconnect failed (may be normal if no previous connection): {e}")
         print(f"[DEBUG] (init) check_now_btn signal receivers before connect: {self.check_now_btn.receivers(self.check_now_btn.clicked)}")
         self.check_now_btn.clicked.connect(self.check_all_now)
         print(f"[DEBUG] (init) check_now_btn signal receivers after connect: {self.check_now_btn.receivers(self.check_now_btn.clicked)}")
@@ -1275,6 +1279,13 @@ class MainWindow(QMainWindow):
         # Auto start monitoring if requested
         if self.settings.get('auto_start_monitoring', True):
             self.start_monitoring()
+
+        self.check_now_btn.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if hasattr(self, 'check_now_btn') and obj == self.check_now_btn:
+            print(f"[DEBUG] eventFilter: event type {event.type()} for check_now_btn")
+        return super().eventFilter(obj, event)
 
     def refresh_project_list(self):
         self.project_list.clear()
@@ -1531,6 +1542,8 @@ class MainWindow(QMainWindow):
                 widget.progress.setVisible(False)
 
     def check_all_now(self):
+        import time
+        print(f"[DEBUG] (check_all_now) called at {time.time()}")
         import traceback
         print('[DEBUG] (check_all_now) STACK TRACE:')
         print(''.join(traceback.format_stack()))
