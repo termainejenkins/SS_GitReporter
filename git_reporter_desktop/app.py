@@ -1524,6 +1524,10 @@ class MainWindow(QMainWindow):
 
     def check_all_now(self):
         try:
+            # Prevent double-start
+            if hasattr(self, 'worker') and self.worker is not None and self.worker.isRunning():
+                QMessageBox.warning(self, 'Check All Now', 'A check is already running.')
+                return
             print('[DEBUG] Entered check_all_now')
             self.append_log('[DEBUG] Entered check_all_now')
             # Validate all project data before starting worker
@@ -1562,7 +1566,11 @@ class MainWindow(QMainWindow):
                     self.append_log('Check All Now complete.')
                     if use_inline:
                         self.reset_all_project_progress()
-                    self.worker = None
+                    # Robust cleanup: only wait if running, then set to None
+                    if self.worker is not None:
+                        if self.worker.isRunning():
+                            self.worker.wait()
+                        self.worker = None
                 except Exception as e:
                     print(f'[ERROR] Exception in on_done: {e}')
             self.worker.log_signal.connect(on_log)
