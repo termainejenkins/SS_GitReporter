@@ -20,6 +20,7 @@ import re
 from git_reporter.config_utils import (
     atomic_save_json, backup_config, load_config_with_recovery, CURRENT_CONFIG_VERSION, config_lock
 )
+import traceback
 
 # Import GitMonitor and DiscordClient from the CLI codebase
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -458,7 +459,7 @@ class CheckAllNowWorker(QThread):
                         self.progress_signal.emit(count)
                         self.per_project_progress_signal.emit(name, count, total)
                         continue
-                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'], creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
+                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'])
                     if not latest_commit:
                         msg = f"[ERROR] Could not get latest commit for '{name}' [{branch}]"
                         print(msg)
@@ -479,7 +480,7 @@ class CheckAllNowWorker(QThread):
                             filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
                             send = True
                     if filters.get('tags', False):
-                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit], creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
+                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit])
                         if tags:
                             filtered_commits += f"\nTags: {tags}"
                             send = True
