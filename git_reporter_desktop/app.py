@@ -1234,6 +1234,7 @@ class MainWindow(QMainWindow):
         self.check_now_btn.clicked.connect(self.check_all_now)
 
         self.monitor_thread = None
+        self.monitor_lock = threading.Lock()
         self.monitor_interval = self.settings.get('master_frequency', 1) * 60
         self.schedule_timer = threading.Thread(target=self.schedule_checker, daemon=True)
         self.schedule_timer_stop = threading.Event()
@@ -1325,26 +1326,29 @@ class MainWindow(QMainWindow):
         self.log_viewer.setVisible(checked)
 
     def start_monitoring(self):
-        if self.monitor_thread and self.monitor_thread.isRunning():
-            QMessageBox.warning(self, 'Monitoring', 'Monitoring is already running.')
-            return
-        self.monitor_thread = MonitorWorker(self.projects, monitor_interval=self.monitor_interval)
-        self.monitor_thread.log_signal.connect(self.append_log)
-        self.monitor_thread.status_signal.connect(self.status_bar.showMessage)
-        self.monitor_thread.start()
+        with self.monitor_lock:
+            if self.monitor_thread and self.monitor_thread.isRunning():
+                QMessageBox.warning(self, 'Monitoring', 'Monitoring is already running.')
+                return
+            self.monitor_thread = MonitorWorker(self.projects, monitor_interval=self.monitor_interval)
+            self.monitor_thread.log_signal.connect(self.append_log)
+            self.monitor_thread.status_signal.connect(self.status_bar.showMessage)
+            self.monitor_thread.start()
         self.start_monitor_btn.setEnabled(False)
         self.stop_monitor_btn.setEnabled(True)
         self.status_bar.showMessage('Monitoring started.', 3000)
         self.append_log('Monitoring started.')
 
     def stop_monitoring(self):
-        if self.monitor_thread and self.monitor_thread.isRunning():
-            self.monitor_thread.stop()
-            self.monitor_thread.wait()
-            self.append_log('Monitoring stopped.')
-            self.status_bar.showMessage('Monitoring stopped.', 3000)
-        self.start_monitor_btn.setEnabled(True)
-        self.stop_monitor_btn.setEnabled(False)
+        with self.monitor_lock:
+            if self.monitor_thread and self.monitor_thread.isRunning():
+                self.monitor_thread.stop()
+                self.monitor_thread.wait()
+                self.append_log('Monitoring stopped.')
+                self.status_bar.showMessage('Monitoring stopped.', 3000)
+            self.start_monitor_btn.setEnabled(True)
+            self.stop_monitor_btn.setEnabled(False)
+            self.monitor_thread = None
 
     def open_settings_dialog(self):
         dialog = SettingsDialog(self, settings=self.settings)
@@ -1379,16 +1383,19 @@ class MainWindow(QMainWindow):
             now = datetime.datetime.now()
             for sched in self.settings.get('schedules', []):
                 if now.strftime('%H:%M') == sched['time'] and now.weekday() in sched['days']:
-                    if not (self.monitor_thread and self.monitor_thread.isRunning()):
-                        self.start_monitoring()
+                    with self.monitor_lock:
+                        if not (self.monitor_thread and self.monitor_thread.isRunning()):
+                            self.start_monitoring()
             time.sleep(30)
 
     def closeEvent(self, event):
         # Ensure monitoring and schedule checker are stopped before closing
         self.schedule_timer_stop.set()
-        if self.monitor_thread and self.monitor_thread.isRunning():
-            self.monitor_thread.stop()
-            self.monitor_thread.wait()
+        with self.monitor_lock:
+            if self.monitor_thread and self.monitor_thread.isRunning():
+                self.monitor_thread.stop()
+                self.monitor_thread.wait()
+            self.monitor_thread = None
         # Ensure any running worker thread is stopped and waited for
         if hasattr(self, 'worker') and self.worker is not None:
             try:
