@@ -44,6 +44,14 @@ MESSAGE_FORMATS = [
 
 WIN_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 
+def get_no_window_startupinfo():
+    if sys.platform == 'win32':
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        return si
+    return None
+
 def get_config_path():
     if sys.platform == 'win32':
         base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
@@ -111,7 +119,7 @@ MONITOR_INTERVAL_SECONDS = 60  # Default check interval (can be made configurabl
 def run_git_command(args, cwd):
     try:
         logging.info(f"Running git command: {' '.join(args)} in {cwd}")
-        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW)
+        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
         logging.info(f"Git command output: {result.stdout.strip()}")
         return result.stdout.strip()
     except FileNotFoundError as e:
@@ -269,11 +277,11 @@ class MonitorWorker(QThread):
                 try:
                     branch_name = branch or ''
                     if not branch_name:
-                        branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout.strip()
-                    log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout.strip()
+                        branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout.strip()
+                    log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout.strip()
                     commit_msg, author = log_out.split('||') if '||' in log_out else (log_out, '')
-                    status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout
-                    diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout
+                    status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout
+                    diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout
                     added, modified, deleted = [], [], []
                     file_types = {}
                     for line in status_out.splitlines():
@@ -366,7 +374,7 @@ class MonitorWorker(QThread):
 
 def get_git_branches(repo_path):
     try:
-        result = subprocess.run(['git', 'branch', '--list'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW)
+        result = subprocess.run(['git', 'branch', '--list'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
         branches = [line.strip().lstrip('* ').strip() for line in result.stdout.splitlines() if line.strip()]
         return branches
     except Exception:
@@ -440,7 +448,7 @@ class CheckAllNowWorker(QThread):
                         break
                     try:
                         if branch:
-                            subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True, creationflags=WIN_NO_WINDOW)
+                            subprocess.run(['git', 'checkout', branch], cwd=path, capture_output=True, text=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
                         monitor = GitMonitor(path, ignored_files=[])
                     except Exception as e:
                         msg = f"[ERROR] Could not initialize GitMonitor for '{name}' branch '{branch}': {e}"
@@ -450,7 +458,7 @@ class CheckAllNowWorker(QThread):
                         self.progress_signal.emit(count)
                         self.per_project_progress_signal.emit(name, count, total)
                         continue
-                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'], creationflags=WIN_NO_WINDOW)
+                    latest_commit = monitor._run_git_command(['git', 'rev-parse', 'HEAD'], creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
                     if not latest_commit:
                         msg = f"[ERROR] Could not get latest commit for '{name}' [{branch}]"
                         print(msg)
@@ -471,7 +479,7 @@ class CheckAllNowWorker(QThread):
                             filtered_commits = '\n'.join([line for line in commits.split('\n') if 'merge' in line.lower()])
                             send = True
                     if filters.get('tags', False):
-                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit], creationflags=WIN_NO_WINDOW)
+                        tags = monitor._run_git_command(['git', 'tag', '--contains', latest_commit], creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo())
                         if tags:
                             filtered_commits += f"\nTags: {tags}"
                             send = True
@@ -642,11 +650,11 @@ class WebhookDialog(QDialog):
             QMessageBox.warning(self, 'Generate Summary', 'Not a valid git repository.')
             return
         try:
-            branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout.strip()
-            log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout.strip()
+            branch_name = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout.strip()
+            log_out = subprocess.run(['git', 'log', '-1', '--pretty=%s||%an'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout.strip()
             commit_msg, author = log_out.split('||') if '||' in log_out else (log_out, '')
-            status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout
-            diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW).stdout
+            status_out = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout
+            diffstat = subprocess.run(['git', 'diff', '--stat'], cwd=repo_path, capture_output=True, text=True, check=True, creationflags=WIN_NO_WINDOW, startupinfo=get_no_window_startupinfo()).stdout
             added, modified, deleted = [], [], []
             file_types = {}
             for line in status_out.splitlines():
