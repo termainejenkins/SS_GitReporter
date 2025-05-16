@@ -1261,7 +1261,6 @@ class MainWindow(QMainWindow):
         self.stop_monitor_btn.clicked.connect(self.stop_monitoring)
         self.project_list.itemDoubleClicked.connect(self.open_edit_project_dialog)
         self.test_all_btn.clicked.connect(self.test_all_status)
-        self.check_now_btn.clicked.connect(self.check_all_now)
 
         self.monitor_thread = None
         self.monitor_lock = threading.Lock()
