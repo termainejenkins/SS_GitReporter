@@ -56,13 +56,33 @@ A modern desktop application for managing and monitoring multiple Unreal Engine 
 ## Configuration & Data Safety
 
 - **Config file location:**
-  - **Desktop app:** `%APPDATA%/GitReporter/desktop_config.json` (Windows) or `~/.config/GitReporter/desktop_config.json` (Linux/macOS)
+  - **Desktop app:** `%APPDATA%/GitReporter/desktop_config.json` (Windows) or `~/GitReporter/desktop_config.json` (Linux/macOS), unless a local override is set (see below)
   - **CLI app:** `config.json` in the working directory
 - **Atomic saves:** Config files are written atomically to prevent corruption (write to a temp file, then replace the original).
 - **Automatic backup:** Before saving, the previous config is backed up as `*.bak`.
 - **Versioning:** Config files include a `version` field for future migration support.
 - **Validation:** Config is validated on load; if invalid, the app will attempt to repair or restore from backup.
 - **Recovery:** If the config file is corrupted, the app will prompt to restore from backup or use defaults.
+
+## Configuring Discord webhooks
+
+Webhook URLs are secrets. Keep them out of git. The files committed in this repo use obvious placeholders such as `PLACEHOLDER_NOT_A_REAL_SECRET`.
+
+**Desktop app**
+
+1. Copy `git_reporter_desktop/desktop_config.example.json` to `git_reporter_desktop/desktop_config.local.json`. The `.local.json` file is gitignored.
+2. Replace each placeholder `webhook` value with the URL from Discord (Channel settings, Integrations, Webhooks). You can instead set a webhook field to an environment-variable reference such as `${DISCORD_WEBHOOK_URL}`.
+3. Start the app. It loads config in this order:
+   - `GITREPORTER_CONFIG`, if that environment variable is set to a config file path
+   - `git_reporter_desktop/desktop_config.local.json`, if that file exists
+   - otherwise the per-user file (`%APPDATA%/GitReporter/desktop_config.json` on Windows, `~/GitReporter/desktop_config.json` on Linux and macOS)
+
+The tracked `git_reporter_desktop/desktop_config.json` is only a placeholder sample. The app does not read it.
+
+**CLI**
+
+1. Copy `.env.example` to `.env` (gitignored).
+2. Set `DISCORD_WEBHOOK_URL` to your webhook URL. A value that is `${SOME_VAR}` is read from that environment variable.
 
 ## Credits
 Created by **Termaine Jenkins** (TJ)  
@@ -75,11 +95,7 @@ SENTIENT SOLUTIONS LLC
    - UE4 project path
    - (Optional) `auto_start_monitoring`: true/false (default: true)
    - (Optional) `start_with_log_open`: true/false (default: false)
-4. Create a `.env` file in the project root with the following content:
-   
-   ```env
-   DISCORD_WEBHOOK_URL=your_webhook_url_here
-   ```
+4. Copy `.env.example` to `.env` and set `DISCORD_WEBHOOK_URL` (see [Configuring Discord webhooks](#configuring-discord-webhooks)).
 5. Run: `py main.py`
 
 ## Documentation

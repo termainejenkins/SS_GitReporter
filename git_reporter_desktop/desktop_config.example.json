@@ -1,0 +1,88 @@
+{
+  "_comment": "Example only. Copy this file to desktop_config.local.json (gitignored) and replace every PLACEHOLDER_NOT_A_REAL_SECRET webhook URL. A webhook value may also be an environment-variable reference such as ${DISCORD_WEBHOOK_URL}. Do not commit real webhook URLs.",
+  "projects": [
+    {
+      "name": "THE GREAT CIRCLE",
+      "path": "A:/UnrealProjects/TGC_4_27",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_1",
+          "format": "Raw commit messages"
+        }
+      ]
+    },
+    {
+      "name": "Git Reporter",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/SS_GitReporter",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_2",
+          "format": "Raw commit messages"
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_3",
+          "format": "Short interpretation"
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_4",
+          "format": "Daily summary"
+        }
+      ]
+    },
+    {
+      "name": "THE GREAT CIRCLE web",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/TheGreatCircleWeb",
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_5",
+          "format": "Raw commit messages",
+          "frequency": 6
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_6",
+          "format": "Short interpretation",
+          "frequency": 5
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_7",
+          "format": "Raw commit messages",
+          "frequency": 60
+        },
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_8",
+          "format": "Daily summary",
+          "frequency": 5
+        }
+      ]
+    },
+    {
+      "name": "SS_Launcher",
+      "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/SS_GameLauncher",
+      "branches": [
+        "main"
+      ],
+      "filters": {
+        "commits": true,
+        "merges": true,
+        "tags": true,
+        "filetypes": ""
+      },
+      "webhooks": [
+        {
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_9",
+          "format": "AI Summary",
+          "frequency": 5,
+          "template": ""
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "start_with_windows": false,
+    "schedules": [],
+    "master_frequency": 3,
+    "auto_start_monitoring": true,
+    "always_on_top": false,
+    "dark_mode": true
+  }
+}
