@@ -4,13 +4,14 @@ from git import Repo
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from dotenv import load_dotenv
 from datetime import datetime
+from git_reporter.config_utils import resolve_webhook_url
 
 # Load environment variables
 load_dotenv()
 
 class GitReporter:
     def __init__(self):
-        self.webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+        self.webhook_url = resolve_webhook_url(os.getenv('DISCORD_WEBHOOK_URL'))
         self.repo_path = os.getenv('REPO_PATH')
         self.repo = None
         self.last_commit_hash = None

@@ -1,10 +1,28 @@
 import os
+import re
 import json
 import tempfile
 import shutil
 import threading
 
 CURRENT_CONFIG_VERSION = 1
+
+# A webhook field may be a literal URL or a reference to one environment variable.
+_WEBHOOK_ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$|^\$([A-Za-z_][A-Za-z0-9_]*)$")
+
+def resolve_webhook_url(url):
+    """Return a Discord webhook URL, expanding ${VAR} or $VAR from the environment.
+
+    Literal URLs are returned unchanged. Missing values and unset references
+    become an empty string so callers do not post to a placeholder name.
+    """
+    if url is None:
+        return ""
+    text = str(url).strip()
+    match = _WEBHOOK_ENV_REF.match(text)
+    if not match:
+        return text
+    return os.environ.get(match.group(1) or match.group(2), "").strip()
 
 # Threading lock for config operations (desktop app can use this)
 config_lock = threading.Lock()

@@ -17,6 +17,7 @@ import threading
 import datetime
 import subprocess
 import re
+from dotenv import load_dotenv
 from git_reporter.config_utils import (
     atomic_save_json, backup_config, load_config_with_recovery, CURRENT_CONFIG_VERSION, config_lock
 )
@@ -53,7 +54,12 @@ def get_no_window_startupinfo():
         return si
     return None
 
-def get_config_path():
+def get_local_config_path():
+    """Gitignored config next to this module. Safe place for real webhook URLs."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'desktop_config.local.json')
+
+def get_user_config_path():
+    """Per-user config outside the repository (existing desktop-app location)."""
     if sys.platform == 'win32':
         base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
     else:
@@ -61,6 +67,20 @@ def get_config_path():
     config_dir = os.path.join(base_dir, 'GitReporter')
     os.makedirs(config_dir, exist_ok=True)
     return os.path.join(config_dir, 'desktop_config.json')
+
+def get_config_path():
+    """Resolve the desktop config file.
+
+    Order: GITREPORTER_CONFIG, then desktop_config.local.json if it exists,
+    otherwise the per-user config. Tracked example files are never selected.
+    """
+    override = os.environ.get('GITREPORTER_CONFIG', '').strip()
+    if override:
+        return override
+    local_path = get_local_config_path()
+    if os.path.isfile(local_path):
+        return local_path
+    return get_user_config_path()
 
 DEFAULT_CONFIG = {
     "version": CURRENT_CONFIG_VERSION,
@@ -77,8 +97,10 @@ DEFAULT_CONFIG = {
     }
 }
 
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env')))
 CONFIG_FILE = get_config_path()
-LOG_FILE = os.path.join(os.path.dirname(CONFIG_FILE), 'app.log')
+# Keep logs in the per-user directory so a repo-local config does not write secrets into the tree.
+LOG_FILE = os.path.join(os.path.dirname(get_user_config_path()), 'app.log')
 
 # Set up file logger
 logging.basicConfig(

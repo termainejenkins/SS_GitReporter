@@ -2,12 +2,17 @@ import requests
 import logging
 from typing import Optional
 
+from .config_utils import resolve_webhook_url
+
 class DiscordClient:
     def __init__(self, webhook_url: str):
-        self.webhook_url = webhook_url
+        self.webhook_url = resolve_webhook_url(webhook_url)
         self.logger = logging.getLogger(__name__)
 
     def send_message(self, content: str) -> bool:
+        if not self.webhook_url:
+            self.logger.error("Discord webhook URL is not configured")
+            return False
         try:
             response = requests.post(
                 self.webhook_url,

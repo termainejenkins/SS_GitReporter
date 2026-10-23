@@ -1,1 +1,6 @@
-.env 
+.env
+# Real Discord webhook URLs belong here, not in tracked config.
+git_reporter_desktop/desktop_config.local.json
+git_reporter_desktop/*.local.json
+*.local.json.bak
+git_reporter_desktop/app.log 

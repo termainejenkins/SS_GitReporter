@@ -5,7 +5,7 @@
       "path": "A:/UnrealProjects/TGC_4_27",
       "webhooks": [
         {
-          "webhook": "https://discord.com/api/webhooks/1372093327675101215/lu2dCq2uyaMokrizBzPkF0U6omNo29W8Ctx-PE6rLXriGlz3A_iaEKry5IsGb8aRTGz9",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_1",
           "format": "Raw commit messages"
         }
       ]
@@ -15,15 +15,15 @@
       "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/SS_GitReporter",
       "webhooks": [
         {
-          "webhook": "https://discord.com/api/webhooks/1372109298074783775/BxL5z1dmkLRmh1D7m7JISp_xhHxV6BIMzfGawH-uLJBUi12-JjHJ4YxtAzgvo2o5fw4_",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_2",
           "format": "Raw commit messages"
         },
         {
-          "webhook": "https://discord.com/api/webhooks/1372110145764458587/_gUAfF4oZFi5SwlnniNo2ubQYtu-lp3EGjro_0Htp4SXsQVchoOc0xr_3py3ca7YNytN",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_3",
           "format": "Short interpretation"
         },
         {
-          "webhook": "https://discord.com/api/webhooks/1372110282284863518/dEIM5GmL6J8prCrEJZ5g9DAzSNbV-wK_eKYIJkeS4NkGdNcHPZVZgUPCcG9MqXnHuKIY",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_4",
           "format": "Daily summary"
         }
       ]
@@ -33,22 +33,22 @@
       "path": "C:/Users/terma/SoftwareProjects/z_SENTIENT SOLUTIONS/TheGreatCircleWeb",
       "webhooks": [
         {
-          "webhook": "https://discord.com/api/webhooks/1372119684689956955/vWxdzRyWam6TMMin7Herse2j66kxBF_RGN-a_nEJhjDquhP5d_c3ZIz7oJp4k2iw2E3E",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_5",
           "format": "Raw commit messages",
           "frequency": 6
         },
         {
-          "webhook": "https://discord.com/api/webhooks/1372122397771173940/BHiAtQibLHzit-6aWjGH-H1HDSYgaViLxOFKINd6YdDvSRINxG5kfMVdTMWXKirOCSak",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_6",
           "format": "Short interpretation",
           "frequency": 5
         },
         {
-          "webhook": "https://discord.com/api/webhooks/1372122635294605372/1vYvxZ5QxlKYI4ssUmObLCQZcjAZTqudYnC5aZeSB9NcMmwO0HOiiU9O8XJw9aGV1uxT",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_7",
           "format": "Raw commit messages",
           "frequency": 60
         },
         {
-          "webhook": "https://discord.com/api/webhooks/1372122895358230640/3Pc-1lBkrYpfN3wLoJEioC3NXRkR_IRssqduAHqGdbLEjYFxkzc732-Y5O-JZ0_mTq_S",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_8",
           "format": "Daily summary",
           "frequency": 5
         }
@@ -68,7 +68,7 @@
       },
       "webhooks": [
         {
-          "webhook": "https://discord.com/api/webhooks/1372137845644591154/eN6buj38n-OzvksMxm1CUblqXxkG6gts6xQgPQxt-ZRihVUpVhNuGahef5KQoDINzhkm",
+          "webhook": "https://discord.com/api/webhooks/000000000000000000/PLACEHOLDER_NOT_A_REAL_SECRET_9",
           "format": "AI Summary",
           "frequency": 5,
           "template": ""
